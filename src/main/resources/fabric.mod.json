@@ -2,10 +2,11 @@
 	"schemaVersion": 1,
 	"id": "manhunt",
 	"version": "${version}",
-	"name": "Manhunt",
-	"description": "Best Manhunt Minecraft mod.",
+	"name": "Manhunts Reinvented",
+	"description": "InventorPWB's Minecraft Manhunt Mod",
 	"authors": [
-		"Anhgelus Morhtuuzh"
+		"Anhgelus Morhtuuzh",
+		"InventorPWB"
 	],
 	"contact": {
 		"sources": "https://github.com/anhgelus/manhunt-mod",
@@ -17,7 +18,7 @@
 	"environment": "server",
 	"entrypoints": {
 		"main": [
-			"world.anhgelus.manhunt.Manhunt"
+			"world.inventorpwb.manhunt.Manhunt"
 		]
 	},
 	"mixins": [

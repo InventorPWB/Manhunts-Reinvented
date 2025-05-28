@@ -1,6 +1,6 @@
 {
   "required": true,
-  "package": "world.anhgelus.manhunt.mixins",
+  "package": "world.inventorpwb.manhunt.mixins",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "Tracker"
