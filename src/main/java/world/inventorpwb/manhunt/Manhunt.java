@@ -1,14 +1,9 @@
 package world.inventorpwb.manhunt;
 
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
-import java.util.UUID;
+import java.util.*;
 
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import net.minecraft.server.command.CommandManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -16,6 +11,7 @@ import com.mojang.brigadier.Command;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import static com.mojang.brigadier.builder.LiteralArgumentBuilder.literal;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
+import com.mojang.brigadier.context.CommandContext;
 
 import eu.midnightdust.lib.config.MidnightConfig;
 import net.fabricmc.api.ModInitializer;
@@ -59,6 +55,11 @@ public class Manhunt implements ModInitializer {
 		ON, OFF
 	}
 
+	private enum GameModeType {
+		CLASSIC,
+		IMPOSTOR
+	}
+
 	private State state = State.OFF;
 
 	@Override
@@ -72,107 +73,74 @@ public class Manhunt implements ModInitializer {
 
 		final LiteralArgumentBuilder<ServerCommandSource> track = literal("track");
 		track.then(RequiredArgumentBuilder.<ServerCommandSource, EntitySelector>argument("player", EntityArgumentType.player())
-				.executes(context -> {
-					final var source = context.getSource();
-					final var tracked = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
-					assert tracked.getDisplayName() != null;
-					final var player = source.getPlayer();
-					if (player == null) return 2;
-					final var uuid = player.getUuid();
-					if (trackedMap.get(uuid) != null && trackedMap.get(uuid) == tracked.getUuid()) {
-						source.sendFeedback(() -> Text.literal("Already tracking "+tracked.getDisplayName().getString()), false);
-						return Command.SINGLE_SUCCESS;
-					}
-					trackedMap.put(player.getUuid(), tracked.getUuid());
-					updateCompass(player, tracked);
-					source.sendFeedback(() -> Text.literal("Tracking "+tracked.getDisplayName().getString()), false);
+			.executes(context -> {
+				final var source = context.getSource();
+				final var tracked = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
+				assert tracked.getDisplayName() != null;
+				final var player = source.getPlayer();
+				if (player == null) return 2;
+				final var uuid = player.getUuid();
+				if (trackedMap.get(uuid) != null && trackedMap.get(uuid) == tracked.getUuid()) {
+					source.sendFeedback(() -> Text.literal("Already tracking "+tracked.getDisplayName().getString()), false);
 					return Command.SINGLE_SUCCESS;
-				})
+				}
+				trackedMap.put(player.getUuid(), tracked.getUuid());
+				updateCompass(player, tracked);
+				source.sendFeedback(() -> Text.literal("Tracking "+tracked.getDisplayName().getString()), false);
+				return Command.SINGLE_SUCCESS;
+			})
 		);
 		final LiteralArgumentBuilder<ServerCommandSource> team = literal("team");
 		final RequiredArgumentBuilder<ServerCommandSource, EntitySelector> teamP = RequiredArgumentBuilder.argument("player", EntityArgumentType.player());
 		teamP.then(LiteralArgumentBuilder.<ServerCommandSource>literal("hunter").executes(context -> {
-					final var p = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
-                    speedrunners.remove(p.getUuid());
-					hunters.add(p.getUuid());
-					assert p.getDisplayName() != null;
-					context.getSource().sendFeedback(() -> Text.literal(p.getDisplayName().getString()+" added to hunter"), true);
-					return Command.SINGLE_SUCCESS;
-				}))
-				.then(LiteralArgumentBuilder.<ServerCommandSource>literal("speedrunner").executes(context -> {
-					final var p = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
-					hunters.remove(p.getUuid());
-					speedrunners.add(p.getUuid());
-					assert p.getDisplayName() != null;
-					context.getSource().sendFeedback(() -> Text.literal(p.getDisplayName().getString()+" added to speedrunner"), true);
-					return Command.SINGLE_SUCCESS;
-				}));
+			final var p = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
+				speedrunners.remove(p.getUuid());
+			hunters.add(p.getUuid());
+			assert p.getDisplayName() != null;
+			context.getSource().sendFeedback(() -> Text.literal(p.getDisplayName().getString()+" added to hunter"), true);
+			return Command.SINGLE_SUCCESS;
+		}))
+		.then(LiteralArgumentBuilder.<ServerCommandSource>literal("speedrunner").executes(context -> {
+			final var p = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
+			hunters.remove(p.getUuid());
+			speedrunners.add(p.getUuid());
+			assert p.getDisplayName() != null;
+			context.getSource().sendFeedback(() -> Text.literal(p.getDisplayName().getString()+" added to speedrunner"), true);
+			return Command.SINGLE_SUCCESS;
+		}));
 		team.then(teamP);
 		final LiteralArgumentBuilder<ServerCommandSource> start = literal("start");
 		start.requires(source -> source.hasPermissionLevel(2));
-		start.executes(context -> {
-			if (state == State.ON) {
-				context.getSource().sendFeedback(() -> Text.literal("Cannot start a manhunt if one is already started!"), false);
-				return Command.SINGLE_SUCCESS;
-			}
-			final PlayerManager pm = context.getSource().getServer().getPlayerManager();
-			for (final ServerPlayerEntity player : pm.getPlayerList()) {
-				player.setHealth(player.getMaxHealth());
-				player.setExperienceLevel(0);
-				player.getInventory().clear();
-				player.getHungerManager().eat(
-						new FoodComponent(20, 20.0f, true)
-				);
-				final var spawn = player.getServerWorld().getSpawnPos();
-				player.teleport(spawn.getX(), spawn.getY(), spawn.getZ(), false);
-			}
-			state = State.ON;
-			for (final UUID uuid : hunters) {
-				final var hunter = pm.getPlayer(uuid);
-				assert hunter != null;
-				final var isACompass = new ItemStack(Items.COMPASS);
-				hunter.giveItemStack(isACompass);
-				hunter.addStatusEffect(new StatusEffectInstance(StatusEffects.MINING_FATIGUE, Config.secondsBeforeRelease*20, 255, false, false));
-				var attr = hunter.getAttributeInstance(EntityAttributes.MOVEMENT_SPEED);
-				if (attr != null) {
-					final var modifier = new EntityAttributeModifier(
-							Identifier.of("manhunt.speed"),
-							-1,
-							EntityAttributeModifier.Operation.ADD_MULTIPLIED_BASE
-					);
-					attr.addTemporaryModifier(modifier);
-				}
-				attr = hunter.getAttributeInstance(EntityAttributes.GRAVITY);
-				if (attr != null) {
-					final var modifier = new EntityAttributeModifier(
-							Identifier.of("manhunt.gravity"),
-							5,
-							EntityAttributeModifier.Operation.ADD_VALUE
-					);
-					attr.addTemporaryModifier(modifier);
-				}
-                LOGGER.info("Added modifiers to {}", hunter.getDisplayName());
-			}
-			timer.schedule(new TimerTask() {
-				@Override
-				public void run() {
-					LOGGER.info("Removing modifier to hunters");
-					for (final UUID uuid : hunters) {
-						final var hunter = pm.getPlayer(uuid);
-						assert hunter != null;
-						var attr = hunter.getAttributeInstance(EntityAttributes.MOVEMENT_SPEED);
-						if (attr != null) {
-							attr.removeModifier(Identifier.of("manhunt.speed"));
-						}
-						attr = hunter.getAttributeInstance(EntityAttributes.GRAVITY);
-						if (attr != null) {
-							attr.removeModifier(Identifier.of("manhunt.gravity"));
-						}
-					}
-				}
-			}, Config.secondsBeforeRelease*1000L);
-			setTimer(pm);
-			context.getSource().sendFeedback(() -> Text.literal("Game started!"), true);
+
+		// "classic" mode
+		start.then(LiteralArgumentBuilder.<ServerCommandSource>literal("classic")
+			.executes((CommandContext<ServerCommandSource> context) ->
+				startGame(context, GameModeType.CLASSIC, 0)
+			)
+		);
+
+		// impostor subcommand with optional count
+		start.then(CommandManager.literal("impostor")
+				// default count = 1
+				.executes(ctx -> startGame(ctx, GameModeType.IMPOSTOR, 1))
+				// optional integer argument
+				.then(CommandManager.argument("count", IntegerArgumentType.integer(1))
+						.executes(ctx -> {
+							int count = IntegerArgumentType.getInteger(ctx, "count");
+							return startGame(ctx, GameModeType.IMPOSTOR, count);
+						})
+				)
+		);
+
+		final LiteralArgumentBuilder<ServerCommandSource> stop = literal("stop");
+		stop.requires(source -> source.hasPermissionLevel(2));
+		stop.executes((CommandContext<ServerCommandSource> context) -> {
+			state = State.OFF;
+			speedrunners.clear();
+			hunters.clear();
+			trackedMap.clear();
+
+			context.getSource().sendFeedback(() -> Text.literal("Manhunt stopped!"), true);
 			return Command.SINGLE_SUCCESS;
 		});
 
@@ -189,6 +157,7 @@ public class Manhunt implements ModInitializer {
 		command.then(team);
 		command.then(start);
 		command.then(resetTimer);
+		command.then(stop);
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(command));
 
@@ -236,10 +205,10 @@ public class Manhunt implements ModInitializer {
 	}
 
 	private void updateCompass(ServerPlayerEntity player, ServerPlayerEntity tracked) {
-		final var trackerCpnt = new LodestoneTrackerComponent(Optional.of(GlobalPos.create(tracked.getWorld().getRegistryKey(), tracked.getBlockPos())), true);
+		final var trackerComponent = new LodestoneTrackerComponent(Optional.of(GlobalPos.create(tracked.getWorld().getRegistryKey(), tracked.getBlockPos())), true);
 		LOGGER.info(tracked.getWorld().getRegistryKey().toString());
 		LOGGER.info(tracked.getBlockPos().toString());
-		LOGGER.info(trackerCpnt.toString());
+		LOGGER.info(trackerComponent.toString());
 		ItemStack is = null;
 		int slot = PlayerInventory.NOT_FOUND;
 		final var inv = player.getInventory();
@@ -262,11 +231,131 @@ public class Manhunt implements ModInitializer {
 			LOGGER.warn("Compass item is null");
 			is = new ItemStack(Items.COMPASS);
 		}
-		is.set(DataComponentTypes.LODESTONE_TRACKER, trackerCpnt);
+		is.set(DataComponentTypes.LODESTONE_TRACKER, trackerComponent);
 		if (slot == PlayerInventory.NOT_FOUND) {
 			player.giveItemStack(is);
 			return;
 		}
 		inv.setStack(slot, is);
+	}
+
+	private int startGame(CommandContext<ServerCommandSource> context, GameModeType mode, int impostors) {
+		if (state == State.ON) {
+			context.getSource().sendFeedback(() -> Text.literal("Cannot start a manhunt if one is already started!"), false);
+			return Command.SINGLE_SUCCESS;
+		}
+
+		final PlayerManager pm = context.getSource().getServer().getPlayerManager();
+		final var players = pm.getPlayerList();
+
+		for (final ServerPlayerEntity player : players) {
+			player.setHealth(player.getMaxHealth());
+			player.setExperienceLevel(0);
+			player.getInventory().clear();
+			player.getHungerManager().eat(
+					new FoodComponent(20, 20.0f, true)
+			);
+			final var spawn = player.getServerWorld().getSpawnPos();
+			player.teleport(spawn.getX(), spawn.getY(), spawn.getZ(), false);
+		}
+
+		// Assign roles for impostor mode
+		if (mode == GameModeType.IMPOSTOR) {
+			hunters.clear();
+			speedrunners.clear();
+
+			if (players.size() < 2) {
+				context.getSource().sendFeedback(() -> Text.literal("At least 2 players are required for impostor mode."), false);
+				return Command.SINGLE_SUCCESS;
+			}
+
+			while (hunters.size() < impostors) {
+				final var randomIndex = (int) (Math.random() * players.size());
+				final var chosenHunter = players.get(randomIndex);
+				if (hunters.contains(chosenHunter.getUuid())) continue;
+
+				hunters.add(chosenHunter.getUuid());
+				chosenHunter.sendMessage(Text.literal("You are the hunter! Act like a speedrunner, but try to stop the others!"), false);
+			}
+
+            for (ServerPlayerEntity player : players) {
+                if (!hunters.contains(player.getUuid())) {
+                    speedrunners.add(player.getUuid());
+                }
+            }
+
+			Random random = new Random();
+
+			for (UUID hunterUuid : hunters) {
+				// Convert set to list to allow index access
+				List<UUID> runnerList = new ArrayList<>(speedrunners);
+
+				if (runnerList.isEmpty()) continue; // avoid crash
+
+				UUID runnerUuid = runnerList.get(random.nextInt(runnerList.size()));
+
+				trackedMap.put(hunterUuid, runnerUuid);
+
+				ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
+				ServerPlayerEntity runner = pm.getPlayer(runnerUuid);
+
+				if (hunter != null && runner != null) {
+					updateCompass(hunter, runner);
+				}
+			}
+		}
+
+		state = State.ON;
+
+		for (final UUID uuid : hunters) {
+			final var hunter = pm.getPlayer(uuid);
+			assert hunter != null;
+			final var isACompass = new ItemStack(Items.COMPASS);
+			hunter.giveItemStack(isACompass);
+
+			if (mode != GameModeType.IMPOSTOR) {
+				hunter.addStatusEffect(new StatusEffectInstance(StatusEffects.MINING_FATIGUE, Config.secondsBeforeRelease*20, 255, false, false));
+				var attr = hunter.getAttributeInstance(EntityAttributes.MOVEMENT_SPEED);
+				if (attr != null) {
+					final var modifier = new EntityAttributeModifier(
+							Identifier.of("manhunt.speed"),
+							-1,
+							EntityAttributeModifier.Operation.ADD_MULTIPLIED_BASE
+					);
+					attr.addTemporaryModifier(modifier);
+				}
+				attr = hunter.getAttributeInstance(EntityAttributes.GRAVITY);
+				if (attr != null) {
+					final var modifier = new EntityAttributeModifier(
+							Identifier.of("manhunt.gravity"),
+							5,
+							EntityAttributeModifier.Operation.ADD_VALUE
+					);
+					attr.addTemporaryModifier(modifier);
+				}
+				LOGGER.info("Added modifiers to {}", hunter.getDisplayName());
+			}
+		}
+		timer.schedule(new TimerTask() {
+			@Override
+			public void run() {
+				LOGGER.info("Removing modifier to hunters");
+				for (final UUID uuid : hunters) {
+					final var hunter = pm.getPlayer(uuid);
+					assert hunter != null;
+					var attr = hunter.getAttributeInstance(EntityAttributes.MOVEMENT_SPEED);
+					if (attr != null) {
+						attr.removeModifier(Identifier.of("manhunt.speed"));
+					}
+					attr = hunter.getAttributeInstance(EntityAttributes.GRAVITY);
+					if (attr != null) {
+						attr.removeModifier(Identifier.of("manhunt.gravity"));
+					}
+				}
+			}
+		}, Config.secondsBeforeRelease*1000L);
+		setTimer(pm);
+		context.getSource().sendFeedback(() -> Text.literal("Game started!"), true);
+		return Command.SINGLE_SUCCESS;
 	}
 }
