@@ -1,9 +1,11 @@
 package world.inventorpwb.manhunt;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.server.command.CommandManager;
+import net.minecraft.util.Formatting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,7 +43,7 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.GlobalPos;
 import net.minecraft.world.GameMode;
 
-public class Manhunt implements ModInitializer {
+public final class Manhunt implements ModInitializer {
 	public static final String MOD_ID = "manhunt";
 	public static final Logger LOGGER = LogManager.getLogger(MOD_ID);
 
@@ -137,6 +139,22 @@ public class Manhunt implements ModInitializer {
 		stop.executes((CommandContext<ServerCommandSource> context) -> {
 			state = State.OFF;
 			speedrunners.clear();
+
+			final PlayerManager pm = context.getSource().getServer().getPlayerManager();
+
+			for (final UUID hunter : hunters) {
+				final ServerPlayerEntity player = pm.getPlayer(hunter);
+				if (player != null) {
+					// Remove all compasses from the inventory
+					player.getInventory().remove(
+							stack -> stack.getItem() == Items.COMPASS,  // Predicate<ItemStack>
+							Integer.MAX_VALUE,                          // Max count to remove
+							player.getInventory()                       // Inventory context (usually itself)
+					);
+					player.sendMessage(Text.literal("Your tracking compass has been removed.").formatted(Formatting.GRAY), false);
+				}
+			}
+
 			hunters.clear();
 			trackedMap.clear();
 
@@ -206,9 +224,7 @@ public class Manhunt implements ModInitializer {
 
 	private void updateCompass(ServerPlayerEntity player, ServerPlayerEntity tracked) {
 		final var trackerComponent = new LodestoneTrackerComponent(Optional.of(GlobalPos.create(tracked.getWorld().getRegistryKey(), tracked.getBlockPos())), true);
-		LOGGER.info(tracked.getWorld().getRegistryKey().toString());
-		LOGGER.info(tracked.getBlockPos().toString());
-		LOGGER.info(trackerComponent.toString());
+
 		ItemStack is = null;
 		int slot = PlayerInventory.NOT_FOUND;
 		final var inv = player.getInventory();
@@ -242,7 +258,7 @@ public class Manhunt implements ModInitializer {
 	private int startGame(CommandContext<ServerCommandSource> context, GameModeType mode, int impostors) {
 		if (state == State.ON) {
 			context.getSource().sendFeedback(() -> Text.literal("Cannot start a manhunt if one is already started!"), false);
-			return Command.SINGLE_SUCCESS;
+			return -1;
 		}
 
 		final PlayerManager pm = context.getSource().getServer().getPlayerManager();
@@ -275,14 +291,32 @@ public class Manhunt implements ModInitializer {
 				if (hunters.contains(chosenHunter.getUuid())) continue;
 
 				hunters.add(chosenHunter.getUuid());
-				chosenHunter.sendMessage(Text.literal("You are the hunter! Act like a speedrunner, but try to stop the others!"), false);
+				chosenHunter.sendMessage(Text.literal("You are the hunter! Act like a speedrunner, but try to stop the others!").formatted(Formatting.DARK_RED), false);
 			}
 
             for (ServerPlayerEntity player : players) {
                 if (!hunters.contains(player.getUuid())) {
                     speedrunners.add(player.getUuid());
+					player.sendMessage(Text.literal("You are a speedrunner! Try to beat the game without being stopped by the hunter(s)!").formatted(Formatting.GREEN));
                 }
             }
+
+			// Notify hunters of their teammates if more than one
+			if (impostors > 1) {
+				List<ServerPlayerEntity> hunterPlayers = players.stream()
+						.filter(p -> hunters.contains(p.getUuid()))
+						.toList();
+
+				for (ServerPlayerEntity hunter : hunterPlayers) {
+					String teammateNames = hunterPlayers.stream()
+							.filter(other -> !other.getUuid().equals(hunter.getUuid()))
+							.map(ServerPlayerEntity::getName)
+							.map(Text::getString)
+							.collect(Collectors.joining(", "));
+
+					hunter.sendMessage(Text.literal("Your fellow hunter" + (impostors > 2 ? "s are: " : " is: ") + teammateNames).formatted(Formatting.RED), false);
+				}
+			}
 
 			Random random = new Random();
 
@@ -310,8 +344,6 @@ public class Manhunt implements ModInitializer {
 		for (final UUID uuid : hunters) {
 			final var hunter = pm.getPlayer(uuid);
 			assert hunter != null;
-			final var isACompass = new ItemStack(Items.COMPASS);
-			hunter.giveItemStack(isACompass);
 
 			if (mode != GameModeType.IMPOSTOR) {
 				hunter.addStatusEffect(new StatusEffectInstance(StatusEffects.MINING_FATIGUE, Config.secondsBeforeRelease*20, 255, false, false));
