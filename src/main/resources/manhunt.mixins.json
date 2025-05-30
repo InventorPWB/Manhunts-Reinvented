@@ -3,7 +3,8 @@
   "package": "world.inventorpwb.manhunt.mixins",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "Tracker"
+    "Tracker",
+    "EnderDragonFightMixin"
   ],
   "injectors": {
     "defaultRequire": 1

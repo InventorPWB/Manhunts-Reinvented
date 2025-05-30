@@ -4,8 +4,10 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.util.Formatting;
+import net.minecraft.world.GameRules;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,6 +48,8 @@ import net.minecraft.world.GameMode;
 public final class Manhunt implements ModInitializer {
 	public static final String MOD_ID = "manhunt";
 	public static final Logger LOGGER = LogManager.getLogger(MOD_ID);
+
+	public static Manhunt INSTANCE;
 
 	private final Set<UUID> hunters = new HashSet<>();
 	private final Set<UUID> speedrunners = new HashSet<>();
@@ -129,6 +133,7 @@ public final class Manhunt implements ModInitializer {
 				.then(CommandManager.argument("count", IntegerArgumentType.integer(1))
 						.executes(ctx -> {
 							int count = IntegerArgumentType.getInteger(ctx, "count");
+
 							return startGame(ctx, GameModeType.IMPOSTOR, count);
 						})
 				)
@@ -139,6 +144,11 @@ public final class Manhunt implements ModInitializer {
 		stop.executes((CommandContext<ServerCommandSource> context) -> {
 			state = State.OFF;
 			speedrunners.clear();
+			hunters.clear();
+			trackedMap.clear();
+
+			// Show death messages
+			context.getSource().getServer().getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(true, context.getSource().getServer());
 
 			final PlayerManager pm = context.getSource().getServer().getPlayerManager();
 
@@ -189,11 +199,20 @@ public final class Manhunt implements ModInitializer {
 			speedrunners.remove(uuid);
 			newPlayer.changeGameMode(GameMode.SPECTATOR);
 			if (!speedrunners.isEmpty()) return;
+
+			// No speedrunners left → hunters win!
+			MinecraftServer server = newPlayer.server;
+			server.getPlayerManager().broadcast(
+					Text.literal("§cHunters win! All speedrunners have died!").formatted(Formatting.RED),
+					false
+			);
+
 			for (final ServerPlayerEntity player : newPlayer.server.getPlayerManager().getPlayerList()) {
 				player.changeGameMode(GameMode.SPECTATOR);
 				hunters.remove(player.getUuid());
 				speedrunners.remove(player.getUuid());
 			}
+
 			state = State.OFF;
 			timer.cancel();
 		});
@@ -205,6 +224,22 @@ public final class Manhunt implements ModInitializer {
 			EntityType.PIGLIN.spawn(world, entity.getBlockPos(), SpawnReason.MOB_SUMMONED);
 			entity.discard();
 		});
+	}
+
+	/**
+	 * Called from Mixin when the Ender Dragon is killed.
+	 */
+	public static void onEnderDragonDeath(MinecraftServer server) {
+		server.getPlayerManager().broadcast(
+				Text.literal("§aSpeedrunners win! The Ender Dragon has been slain!"),
+				false
+		);
+		// Cleanup
+		INSTANCE.state = State.OFF;
+		INSTANCE.hunters.clear();
+		INSTANCE.speedrunners.clear();
+		INSTANCE.trackedMap.clear();
+		INSTANCE.timer.cancel();
 	}
 
 	private void setTimer(PlayerManager pm) {
@@ -280,6 +315,8 @@ public final class Manhunt implements ModInitializer {
 			hunters.clear();
 			speedrunners.clear();
 
+			context.getSource().getServer().getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(false, context.getSource().getServer());
+
 			if (players.size() < 2) {
 				context.getSource().sendFeedback(() -> Text.literal("At least 2 players are required for impostor mode."), false);
 				return Command.SINGLE_SUCCESS;
@@ -317,56 +354,60 @@ public final class Manhunt implements ModInitializer {
 					hunter.sendMessage(Text.literal("Your fellow hunter" + (impostors > 2 ? "s are: " : " is: ") + teammateNames).formatted(Formatting.RED), false);
 				}
 			}
+		}
 
-			Random random = new Random();
+		// Start all hunters' compasses at a random runner
+		Random random = new Random();
+		for (UUID hunterUuid : hunters) {
+			// Convert set to list to allow index access
+			List<UUID> runnerList = new ArrayList<>(speedrunners);
 
-			for (UUID hunterUuid : hunters) {
-				// Convert set to list to allow index access
-				List<UUID> runnerList = new ArrayList<>(speedrunners);
+			if (runnerList.isEmpty()) continue; // avoid crash
 
-				if (runnerList.isEmpty()) continue; // avoid crash
+			UUID runnerUuid = runnerList.get(random.nextInt(runnerList.size()));
 
-				UUID runnerUuid = runnerList.get(random.nextInt(runnerList.size()));
+			trackedMap.put(hunterUuid, runnerUuid);
 
-				trackedMap.put(hunterUuid, runnerUuid);
+			ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
+			ServerPlayerEntity runner = pm.getPlayer(runnerUuid);
 
-				ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
-				ServerPlayerEntity runner = pm.getPlayer(runnerUuid);
-
-				if (hunter != null && runner != null) {
-					updateCompass(hunter, runner);
-				}
+			if (hunter != null && runner != null) {
+				updateCompass(hunter, runner);
 			}
 		}
 
 		state = State.ON;
+		setTimer(pm);
+
+		// Only classic run logic remains
+		if (mode == GameModeType.IMPOSTOR) return Command.SINGLE_SUCCESS;
 
 		for (final UUID uuid : hunters) {
 			final var hunter = pm.getPlayer(uuid);
 			assert hunter != null;
 
-			if (mode != GameModeType.IMPOSTOR) {
-				hunter.addStatusEffect(new StatusEffectInstance(StatusEffects.MINING_FATIGUE, Config.secondsBeforeRelease*20, 255, false, false));
-				var attr = hunter.getAttributeInstance(EntityAttributes.MOVEMENT_SPEED);
-				if (attr != null) {
-					final var modifier = new EntityAttributeModifier(
-							Identifier.of("manhunt.speed"),
-							-1,
-							EntityAttributeModifier.Operation.ADD_MULTIPLIED_BASE
-					);
-					attr.addTemporaryModifier(modifier);
-				}
-				attr = hunter.getAttributeInstance(EntityAttributes.GRAVITY);
-				if (attr != null) {
-					final var modifier = new EntityAttributeModifier(
-							Identifier.of("manhunt.gravity"),
-							5,
-							EntityAttributeModifier.Operation.ADD_VALUE
-					);
-					attr.addTemporaryModifier(modifier);
-				}
-				LOGGER.info("Added modifiers to {}", hunter.getDisplayName());
+			hunter.sendMessage(Text.literal("You are the hunter! Try to stop the speedrunners from beating the game!").formatted(Formatting.RED));
+
+			hunter.addStatusEffect(new StatusEffectInstance(StatusEffects.MINING_FATIGUE, Config.secondsBeforeRelease * 20, 255, false, false));
+			var attr = hunter.getAttributeInstance(EntityAttributes.MOVEMENT_SPEED);
+			if (attr != null) {
+				final var modifier = new EntityAttributeModifier(
+						Identifier.of("manhunt.speed"),
+						-1,
+						EntityAttributeModifier.Operation.ADD_MULTIPLIED_BASE
+				);
+				attr.addTemporaryModifier(modifier);
 			}
+			attr = hunter.getAttributeInstance(EntityAttributes.GRAVITY);
+			if (attr != null) {
+				final var modifier = new EntityAttributeModifier(
+						Identifier.of("manhunt.gravity"),
+						5,
+						EntityAttributeModifier.Operation.ADD_VALUE
+				);
+				attr.addTemporaryModifier(modifier);
+			}
+			LOGGER.info("Added modifiers to {}", hunter.getDisplayName());
 		}
 		timer.schedule(new TimerTask() {
 			@Override
@@ -386,8 +427,8 @@ public final class Manhunt implements ModInitializer {
 				}
 			}
 		}, Config.secondsBeforeRelease*1000L);
-		setTimer(pm);
 		context.getSource().sendFeedback(() -> Text.literal("Game started!"), true);
 		return Command.SINGLE_SUCCESS;
 	}
+
 }

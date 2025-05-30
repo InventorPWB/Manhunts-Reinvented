@@ -33,7 +33,7 @@ The default config file is:
 ```json
 {
   "secondsBeforeRelease": 30,
-  "updateCompassEach": 15,
+  "updateCompassEach": 5,
   "removePiglinBrutes": false
 }
 ```
