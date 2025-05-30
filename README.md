@@ -1,19 +1,10 @@
-# Manhunt
+# Manhunts Reinvented
 
 Simple server-side Fabric mod creating a manhunt in Minecraft.
 
 Made for Minecraft 1.21.
 
-Disable the spawn of Piglin Brute and revert loot_table of Piglin bartering's update in Minecraft 1.16.2 (Nether is the
-same as Minecraft 1.16.1).
-
 :warning: When you break a lodestone, the compass is still focused on this lodestone!
-
-## Why did I create this mod?
-
-Because there was no server-side Minecraft mod for the latest Minecraft version.
-In addition to this, these mods do not revert the Nether which is essential for speedrunning the game, and they do not 
-update automatically the compass.
 
 ## Usage
 
@@ -26,6 +17,10 @@ update automatically the compass.
 `/manhunt track <player>` sets the compass to track the player.
 
 `/manhunt start` starts the manhunt.
+- `/manhunt start classic` starts the manhunt in classic mode.
+- `/manhunt start impostor` starts the manhunt and randomly assigns a secret hunter.
+
+`/manhunt stop` stops the current manhunt.
 
 `/manhunt reset-timer` resets all timers (useful after a server crash).
 
@@ -38,12 +33,14 @@ The default config file is:
 ```json
 {
   "secondsBeforeRelease": 30,
-  "updateCompassEach": 15
+  "updateCompassEach": 15,
+  "removePiglinBrutes": false
 }
 ```
 
 - `secondsBeforeRelease` is the time before the release of the hunters
 - `updateCompassEach` is the time between two compass' updates (fewer means more updates)
+- `removePiglinBrutes` allows the disabling of piglin brute spawning, instead spawning regular piglins in their place.
 
 ## Technos
 
