@@ -2,6 +2,8 @@
 
 Simple server-side Fabric mod creating a manhunt in Minecraft.
 
+Based on https://github.com/anhgelus/manhunt-mod
+
 Made for Minecraft 1.21.
 
 :warning: When you break a lodestone, the compass is still focused on this lodestone!
@@ -10,7 +12,7 @@ Made for Minecraft 1.21.
 
 `/manhunt` is the main command.
 
-`/manhunt team` edits the team.
+`/manhunt team` edits the team. Used for classic manhunts.
 - `/manhunt team <player> hunter` adds the player to the hunters.
 - `/manhunt team <player> speedrunner` adds the player to the speedrunners.
 
@@ -18,13 +20,13 @@ Made for Minecraft 1.21.
 
 `/manhunt start` starts the manhunt.
 - `/manhunt start classic` starts the manhunt in classic mode.
-- `/manhunt start impostor` starts the manhunt and randomly assigns a secret hunter.
+- `/manhunt start impostor` starts the manhunt and randomly assigns a secret hunter. A number can be added to specify a number of hunters.
 
 `/manhunt stop` stops the current manhunt.
 
 `/manhunt reset-timer` resets all timers (useful after a server crash).
 
-## Config file
+## Config File
 
 You can config the time before the release of the hunters and the time between two compass' updates by modifying the config 
 file `config/manhunt.json`.
@@ -42,7 +44,7 @@ The default config file is:
 - `updateCompassEach` is the time between two compass' updates (fewer means more updates)
 - `removePiglinBrutes` allows the disabling of piglin brute spawning, instead spawning regular piglins in their place.
 
-## Technos
+## Technologies
 
 - Fabric
 - Fabric API
