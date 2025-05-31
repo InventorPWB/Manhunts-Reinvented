@@ -75,6 +75,8 @@ public final class Manhunt implements ModInitializer {
 		LOGGER.info(Config.secondsBeforeRelease);
 		LOGGER.info(Config.updateCompassEach);
 
+		Instance = this;
+
 		final LiteralArgumentBuilder<ServerCommandSource> command = literal("manhunt");
 
 		final LiteralArgumentBuilder<ServerCommandSource> track = literal("track");
