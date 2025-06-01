@@ -53,6 +53,7 @@ public final class Manhunt implements ModInitializer {
 
 	private final Set<UUID> hunters = new HashSet<>();
 	private final Set<UUID> speedrunners = new HashSet<>();
+	private final Set<Text> deadNames = new HashSet<Text>();
 	private final Map<UUID, UUID> trackedMap = new HashMap<>();
 
 	private final Timer timer = new Timer();
@@ -67,6 +68,17 @@ public final class Manhunt implements ModInitializer {
 	}
 
 	private State state = State.OFF;
+
+	/** Returns true if a manhunt is currently in progress. */
+	public boolean isActive() {
+		return INSTANCE != null && INSTANCE.state == State.ON;
+	}
+
+	/** Returns true if the given UUID is marked as dead in this Manhunt. */
+	public boolean isDead(Text name) {
+        LOGGER.info("Is dead? name: {}; contains: {}", name, deadNames.contains(name));
+		return deadNames.contains(name);
+	}
 
 	@Override
 	public void onInitialize() {
@@ -148,6 +160,7 @@ public final class Manhunt implements ModInitializer {
 			speedrunners.clear();
 			hunters.clear();
 			trackedMap.clear();
+			deadNames.clear();
 
 			// Show death messages
 			context.getSource().getServer().getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(true, context.getSource().getServer());
@@ -199,6 +212,7 @@ public final class Manhunt implements ModInitializer {
 				return;
 			}
 			speedrunners.remove(uuid);
+			deadNames.add(oldPlayer.getName());
 			newPlayer.changeGameMode(GameMode.SPECTATOR);
 			if (!speedrunners.isEmpty()) return;
 
@@ -274,6 +288,7 @@ public final class Manhunt implements ModInitializer {
 		} else {
 			for (int i = 0; i < PlayerInventory.MAIN_SIZE && is == null; i++) {
 				final var stack = inv.getStack(i);
+				LOGGER.info("Slot {} has: {}", i, stack.getItem());
 				if (stack.isOf(Items.COMPASS)) {
 					is = stack;
 					slot = i;
@@ -330,7 +345,7 @@ public final class Manhunt implements ModInitializer {
 				if (hunters.contains(chosenHunter.getUuid())) continue;
 
 				hunters.add(chosenHunter.getUuid());
-				chosenHunter.sendMessage(Text.literal("You are the hunter! Act like a speedrunner, but try to stop the others!").formatted(Formatting.DARK_RED), false);
+				chosenHunter.sendMessage(Text.literal("You are " + (impostors > 1 ? "a" : "the") + " hunter! Act like a speedrunner, but try to stop the others!").formatted(Formatting.DARK_RED), false);
 			}
 
             for (ServerPlayerEntity player : players) {
@@ -374,6 +389,7 @@ public final class Manhunt implements ModInitializer {
 			ServerPlayerEntity runner = pm.getPlayer(runnerUuid);
 
 			if (hunter != null && runner != null) {
+				hunter.giveItemStack(new ItemStack(Items.COMPASS));
 				updateCompass(hunter, runner);
 			}
 		}
@@ -411,6 +427,25 @@ public final class Manhunt implements ModInitializer {
 			}
 			LOGGER.info("Added modifiers to {}", hunter.getDisplayName());
 		}
+
+		// schedule a tip 10 seconds later
+		timer.schedule(new TimerTask() {
+			@Override
+			public void run() {
+				// broadcast to each hunter:
+				for (UUID hunterUuid : hunters) {
+					ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
+					if (hunter != null) {
+						hunter.sendMessage(
+								Text.literal("Tip: Use /manhunt track <player> to track a specific player!")
+										.formatted(Formatting.GRAY),
+								false
+						);
+					}
+				}
+			}
+		}, 10000L); // 10_000 ms = 10 seconds
+
 		timer.schedule(new TimerTask() {
 			@Override
 			public void run() {
