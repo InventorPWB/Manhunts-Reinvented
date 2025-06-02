@@ -5,9 +5,7 @@ import java.util.stream.Collectors;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.enchantment.Enchantment;
-import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.enchantment.Enchantments;
-import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
@@ -204,16 +202,16 @@ public final class Manhunt implements ModInitializer {
 
 		// impostor subcommand with optional count
 		start.then(CommandManager.literal("impostor")
-				// default count = 1
-				.executes(ctx -> startGame(ctx, GameModeType.IMPOSTOR, 1))
-				// optional integer argument
-				.then(CommandManager.argument("count", IntegerArgumentType.integer(1))
-						.executes(ctx -> {
-							int count = IntegerArgumentType.getInteger(ctx, "count");
+			// default count = 1
+			.executes(ctx -> startGame(ctx, GameModeType.IMPOSTOR, 1))
+			// optional integer argument
+			.then(CommandManager.argument("count", IntegerArgumentType.integer(1))
+				.executes(ctx -> {
+					int count = IntegerArgumentType.getInteger(ctx, "count");
 
-							return startGame(ctx, GameModeType.IMPOSTOR, count);
-						})
-				)
+					return startGame(ctx, GameModeType.IMPOSTOR, count);
+				})
+			)
 		);
 
 		final LiteralArgumentBuilder<ServerCommandSource> stop = literal("stop");
@@ -338,6 +336,7 @@ public final class Manhunt implements ModInitializer {
 					if (hunter == null) continue;
 					final ServerPlayerEntity tracked = pm.getPlayer(trackedMap.get(uuid));
 					if (tracked == null) continue;
+					if (tracked.getWorld() != hunter.getWorld()) continue;
 					updateCompass(hunter, tracked);
 				}
 			}
