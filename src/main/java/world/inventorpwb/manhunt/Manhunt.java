@@ -4,9 +4,18 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import net.minecraft.enchantment.Enchantment;
+import net.minecraft.enchantment.EnchantmentHelper;
+import net.minecraft.enchantment.Enchantments;
+import net.minecraft.registry.Registries;
+import net.minecraft.registry.Registry;
+import net.minecraft.registry.RegistryKey;
+import net.minecraft.registry.RegistryKeys;
+import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameRules;
 import org.apache.logging.log4j.LogManager;
@@ -42,7 +51,7 @@ import net.minecraft.server.PlayerManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
+
 import net.minecraft.util.math.GlobalPos;
 import net.minecraft.world.GameMode;
 
@@ -366,9 +375,16 @@ public final class Manhunt implements ModInitializer {
 
 		// Set the custom name for tracking
 		is.set(
-				DataComponentTypes.CUSTOM_NAME,
-				Text.literal("Tracking Player: ").append(tracked.getDisplayName())
+			DataComponentTypes.CUSTOM_NAME,
+			Text.literal("Tracking Player: ").append(tracked.getDisplayName())
 		);
+
+		// Apply Curse of Vanishing to the compass
+		// These 4 lines took way too long to figure out
+		Registry<Enchantment> enchantmentRegistry = Objects.requireNonNull(player.getServer()).getRegistryManager().getOrThrow(RegistryKeys.ENCHANTMENT);
+		RegistryKey<Enchantment> vanishingCurseKey = Enchantments.VANISHING_CURSE;
+		RegistryEntry<Enchantment> vanishingCurseEntry = enchantmentRegistry.getOrThrow(vanishingCurseKey);
+		is.addEnchantment(vanishingCurseEntry, 1);
 
 		if (slot == PlayerInventory.NOT_FOUND) {
 			player.giveItemStack(is);
