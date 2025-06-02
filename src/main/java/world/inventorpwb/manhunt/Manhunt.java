@@ -7,6 +7,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameRules;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -53,10 +54,10 @@ public final class Manhunt implements ModInitializer {
 
 	private final Set<UUID> hunters = new HashSet<>();
 	private final Set<UUID> speedrunners = new HashSet<>();
-	private final Set<Text> deadNames = new HashSet<Text>();
+	private final Set<Text> deadNames = new HashSet<>();
 	private final Map<UUID, UUID> trackedMap = new HashMap<>();
 
-	private final Timer timer = new Timer();
+	private Timer timer = new Timer();
 
 	private enum State {
 		ON, OFF
@@ -68,6 +69,7 @@ public final class Manhunt implements ModInitializer {
 	}
 
 	private State state = State.OFF;
+	private GameModeType manhuntMode;
 
 	/** Returns true if a manhunt is currently in progress. */
 	public boolean isActive() {
@@ -76,8 +78,12 @@ public final class Manhunt implements ModInitializer {
 
 	/** Returns true if the given UUID is marked as dead in this Manhunt. */
 	public boolean isDead(Text name) {
-        LOGGER.info("Is dead? name: {}; contains: {}", name, deadNames.contains(name));
 		return deadNames.contains(name);
+	}
+
+	/** Returns true if the current manhunt is an impostor manhunt **/
+	public boolean isModeImpostor() {
+		return INSTANCE.manhuntMode == GameModeType.IMPOSTOR;
 	}
 
 	@Override
@@ -91,6 +97,48 @@ public final class Manhunt implements ModInitializer {
 
 		final LiteralArgumentBuilder<ServerCommandSource> command = literal("manhunt");
 
+		final LiteralArgumentBuilder<ServerCommandSource> lost = literal("lost");
+		lost.executes(context -> {
+			ServerPlayerEntity player = context.getSource().getPlayer();
+			assert player != null;
+
+			String playerName = player.getName().getString();
+			context.getSource().getServer().getPlayerManager().broadcast(
+					Text.literal(playerName + " is lost and needs coordinates!"),
+					false // false = broadcast to all players, not ops only
+			);
+			return Command.SINGLE_SUCCESS;
+		});
+
+		final LiteralArgumentBuilder<ServerCommandSource> alert = literal("alert");
+		alert.executes(context -> {
+			ServerPlayerEntity player = context.getSource().getPlayer();
+			assert player != null;
+
+			Vec3d posVec = player.getPos();
+			int x = (int) Math.round(posVec.x);
+			int y = (int) Math.round(posVec.y);
+			int z = (int) Math.round(posVec.z);
+
+			String playerName = player.getName().getString();
+			String dimension = player.getWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
+			String formatted = switch (dimension) {
+				case "minecraft:overworld" -> "Overworld";
+				case "minecraft:the_nether" -> "Nether";
+				case "minecraft:the_end" -> "End";
+				default -> dimension;
+			};
+
+			String pos = String.format("(%d, %d, %d)", x, y, z);
+			String message = String.format("%s sent an alert at %s in the %s!", playerName, pos, formatted);
+
+			context.getSource().getServer().getPlayerManager().broadcast(
+					Text.literal(message),
+					false
+			);
+			return Command.SINGLE_SUCCESS;
+		});
+
 		final LiteralArgumentBuilder<ServerCommandSource> track = literal("track");
 		track.then(RequiredArgumentBuilder.<ServerCommandSource, EntitySelector>argument("player", EntityArgumentType.player())
 			.executes(context -> {
@@ -100,6 +148,12 @@ public final class Manhunt implements ModInitializer {
 				final var player = source.getPlayer();
 				if (player == null) return 2;
 				final var uuid = player.getUuid();
+
+				if (!hunters.contains(uuid)) {
+					source.sendFeedback(() -> Text.literal("You aren't a hunter!"), false);
+					return Command.SINGLE_SUCCESS;
+				}
+
 				if (trackedMap.get(uuid) != null && trackedMap.get(uuid) == tracked.getUuid()) {
 					source.sendFeedback(() -> Text.literal("Already tracking "+tracked.getDisplayName().getString()), false);
 					return Command.SINGLE_SUCCESS;
@@ -156,6 +210,12 @@ public final class Manhunt implements ModInitializer {
 		final LiteralArgumentBuilder<ServerCommandSource> stop = literal("stop");
 		stop.requires(source -> source.hasPermissionLevel(2));
 		stop.executes((CommandContext<ServerCommandSource> context) -> {
+
+			if (state == State.OFF) {
+				context.getSource().sendFeedback(() -> Text.literal("There is no active manhunt!"), true);
+				return Command.SINGLE_SUCCESS;
+			}
+
 			state = State.OFF;
 			speedrunners.clear();
 			hunters.clear();
@@ -172,9 +232,9 @@ public final class Manhunt implements ModInitializer {
 				if (player != null) {
 					// Remove all compasses from the inventory
 					player.getInventory().remove(
-							stack -> stack.getItem() == Items.COMPASS,  // Predicate<ItemStack>
-							Integer.MAX_VALUE,                          // Max count to remove
-							player.getInventory()                       // Inventory context (usually itself)
+						stack -> stack.getItem() == Items.COMPASS,  // Predicate<ItemStack>
+						Integer.MAX_VALUE,                          // Max count to remove
+						player.getInventory()                       // Inventory context (usually itself)
 					);
 					player.sendMessage(Text.literal("Your tracking compass has been removed.").formatted(Formatting.GRAY), false);
 				}
@@ -201,6 +261,8 @@ public final class Manhunt implements ModInitializer {
 		command.then(start);
 		command.then(resetTimer);
 		command.then(stop);
+		command.then(lost);
+		command.then(alert);
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(command));
 
@@ -288,7 +350,6 @@ public final class Manhunt implements ModInitializer {
 		} else {
 			for (int i = 0; i < PlayerInventory.MAIN_SIZE && is == null; i++) {
 				final var stack = inv.getStack(i);
-				LOGGER.info("Slot {} has: {}", i, stack.getItem());
 				if (stack.isOf(Items.COMPASS)) {
 					is = stack;
 					slot = i;
@@ -299,11 +360,22 @@ public final class Manhunt implements ModInitializer {
 			LOGGER.warn("Compass item is null");
 			is = new ItemStack(Items.COMPASS);
 		}
+
+		// Apply the tracker component
 		is.set(DataComponentTypes.LODESTONE_TRACKER, trackerComponent);
+
+		// Set the custom name for tracking
+		is.set(
+				DataComponentTypes.CUSTOM_NAME,
+				Text.literal("Tracking Player: ").append(tracked.getDisplayName())
+		);
+
 		if (slot == PlayerInventory.NOT_FOUND) {
 			player.giveItemStack(is);
 			return;
 		}
+
+		// Set the compass slot
 		inv.setStack(slot, is);
 	}
 
@@ -312,6 +384,13 @@ public final class Manhunt implements ModInitializer {
 			context.getSource().sendFeedback(() -> Text.literal("Cannot start a manhunt if one is already started!"), false);
 			return -1;
 		}
+
+		manhuntMode = mode;
+
+		// 1) If there’s already a Timer with pending tasks, cancel it:
+		timer.cancel();
+		// 2) Create a new Timer so no old tasks remain:
+		timer = new Timer();
 
 		final PlayerManager pm = context.getSource().getServer().getPlayerManager();
 		final var players = pm.getPlayerList();
@@ -389,13 +468,40 @@ public final class Manhunt implements ModInitializer {
 			ServerPlayerEntity runner = pm.getPlayer(runnerUuid);
 
 			if (hunter != null && runner != null) {
-				hunter.giveItemStack(new ItemStack(Items.COMPASS));
+				PlayerInventory inv = hunter.getInventory();
+				ItemStack compass = new ItemStack(Items.COMPASS);
+				// Try to find the first empty main inventory slot (slots 9–35)
+				for (int slot = 9; slot < inv.size(); slot++) {
+					if (inv.getStack(slot).isEmpty()) {
+						inv.setStack(slot, compass);
+						break;
+					}
+				}
+
 				updateCompass(hunter, runner);
 			}
 		}
 
 		state = State.ON;
 		setTimer(pm);
+
+		// schedule a tip 10 seconds later
+		timer.schedule(new TimerTask() {
+			@Override
+			public void run() {
+				// broadcast to each hunter:
+				for (UUID hunterUuid : hunters) {
+					ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
+					if (hunter != null) {
+						hunter.sendMessage(
+							Text.literal("Tip: Use /manhunt track <player> to track a specific player!")
+									.formatted(Formatting.GRAY),
+							false
+						);
+					}
+				}
+			}
+		}, 10000L); // 10_000 ms = 10 seconds
 
 		// Only classic run logic remains
 		if (mode == GameModeType.IMPOSTOR) return Command.SINGLE_SUCCESS;
@@ -428,24 +534,6 @@ public final class Manhunt implements ModInitializer {
 			LOGGER.info("Added modifiers to {}", hunter.getDisplayName());
 		}
 
-		// schedule a tip 10 seconds later
-		timer.schedule(new TimerTask() {
-			@Override
-			public void run() {
-				// broadcast to each hunter:
-				for (UUID hunterUuid : hunters) {
-					ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
-					if (hunter != null) {
-						hunter.sendMessage(
-								Text.literal("Tip: Use /manhunt track <player> to track a specific player!")
-										.formatted(Formatting.GRAY),
-								false
-						);
-					}
-				}
-			}
-		}, 10000L); // 10_000 ms = 10 seconds
-
 		timer.schedule(new TimerTask() {
 			@Override
 			public void run() {
@@ -467,5 +555,4 @@ public final class Manhunt implements ModInitializer {
 		context.getSource().sendFeedback(() -> Text.literal("Game started!"), true);
 		return Command.SINGLE_SUCCESS;
 	}
-
 }

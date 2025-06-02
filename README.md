@@ -22,6 +22,10 @@ Made for Minecraft 1.21.
 - `/manhunt start classic` starts the manhunt in classic mode.
 - `/manhunt start impostor` starts the manhunt and randomly assigns a secret hunter. A number can be added to specify a number of hunters.
 
+`/manhunt alert` sends an alert with coordinates and current dimension.
+
+`/manhunt lost` sends a request for coordinates to other players.
+
 `/manhunt stop` stops the current manhunt.
 
 `/manhunt reset-timer` resets all timers (useful after a server crash).
@@ -32,17 +36,22 @@ You can config the time before the release of the hunters and the time between t
 file `config/manhunt.json`.
 
 The default config file is:
+
 ```json
 {
   "secondsBeforeRelease": 30,
   "updateCompassEach": 5,
-  "removePiglinBrutes": false
+  "removePiglinBrutes": false,
+  "disableImpostorGameChat": true,
+  "disableMessaging": true
 }
 ```
 
 - `secondsBeforeRelease` is the time before the release of the hunters
 - `updateCompassEach` is the time between two compass' updates (fewer means more updates)
 - `removePiglinBrutes` allows the disabling of piglin brute spawning, instead spawning regular piglins in their place.
+- `disableImpostorGameChat` disables the regular game chat during impostor manhunts.
+- `disableMessaging` disables /msg and related messaging commands globally. Requires game restart.
 
 ## Technologies
 

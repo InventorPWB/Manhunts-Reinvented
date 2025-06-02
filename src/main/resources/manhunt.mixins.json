@@ -3,9 +3,15 @@
   "package": "world.inventorpwb.manhunt.mixins",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "Tracker",
     "EnderDragonFightMixin",
-    "PlayerManagerMixin"
+    "PlayerAdvancementTrackerAccessor",
+    "PlayerAdvancementTrackerMixin",
+    "PlayerManagerMixin",
+    "RemoveChatMixin",
+    "RemoveMeCommandMixin",
+    "RemoveMessageCommandMixin",
+    "RemoveTeamMessageCommandMixin",
+    "Tracker"
   ],
   "injectors": {
     "defaultRequire": 1

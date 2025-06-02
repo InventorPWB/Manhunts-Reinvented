@@ -1,7 +1,6 @@
 package world.inventorpwb.manhunt.mixins;
 
 import net.minecraft.server.PlayerManager;
-import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 
 import org.slf4j.Logger;
