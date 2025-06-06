@@ -72,7 +72,8 @@ public final class Manhunt implements ModInitializer {
 
 	private enum GameModeType {
 		CLASSIC,
-		IMPOSTOR
+		IMPOSTOR,
+		INFECTION
 	}
 
 	private State state = State.OFF;
@@ -91,6 +92,10 @@ public final class Manhunt implements ModInitializer {
 	/** Returns true if the current manhunt is an impostor manhunt **/
 	public boolean isModeImpostor() {
 		return INSTANCE.manhuntMode == GameModeType.IMPOSTOR;
+	}
+
+	public boolean isModeInfection() {
+		return INSTANCE.manhuntMode == GameModeType.INFECTION;
 	}
 
 	@Override
@@ -214,6 +219,20 @@ public final class Manhunt implements ModInitializer {
 			)
 		);
 
+		// infection subcommand with optional count
+		start.then(CommandManager.literal("infection")
+				// default count = 1
+				.executes(ctx -> startGame(ctx, GameModeType.INFECTION, 1))
+				// optional integer argument
+				.then(CommandManager.argument("count", IntegerArgumentType.integer(1))
+						.executes(ctx -> {
+							int count = IntegerArgumentType.getInteger(ctx, "count");
+
+							return startGame(ctx, GameModeType.INFECTION, count);
+						})
+				)
+		);
+
 		final LiteralArgumentBuilder<ServerCommandSource> stop = literal("stop");
 		stop.requires(source -> source.hasPermissionLevel(2));
 		stop.executes((CommandContext<ServerCommandSource> context) -> {
@@ -280,16 +299,33 @@ public final class Manhunt implements ModInitializer {
 				newPlayer.giveItemStack(new ItemStack(Items.COMPASS));
 				return;
 			}
+
 			speedrunners.remove(uuid);
-			deadNames.add(oldPlayer.getName());
-			newPlayer.changeGameMode(GameMode.SPECTATOR);
+
+			if (manhuntMode == GameModeType.INFECTION) {
+				hunters.add(uuid);
+
+				PlayerManager pm = newPlayer.server.getPlayerManager();
+				ServerPlayerEntity player = pm.getPlayer(uuid);
+				assert player != null;
+
+				player.sendMessage(Text.literal("You died! You are now a hunter. Try to stop the remaining speedrunners!").formatted(Formatting.DARK_RED));
+				newPlayer.giveItemStack(new ItemStack(Items.COMPASS));
+
+				Random random = new Random();
+				randomizeHunterTracking(newPlayer.getUuid(), pm, random);
+			} else {
+				deadNames.add(oldPlayer.getName());
+				newPlayer.changeGameMode(GameMode.SPECTATOR);
+			}
+
 			if (!speedrunners.isEmpty()) return;
 
 			// No speedrunners left → hunters win!
 			MinecraftServer server = newPlayer.server;
 			server.getPlayerManager().broadcast(
-					Text.literal("§cHunters win! All speedrunners have died!").formatted(Formatting.RED),
-					false
+				Text.literal("§cHunters win! All speedrunners have died!").formatted(Formatting.RED),
+				false
 			);
 
 			for (final ServerPlayerEntity player : newPlayer.server.getPlayerManager().getPlayerList()) {
@@ -422,7 +458,7 @@ public final class Manhunt implements ModInitializer {
 		}
 
 		// Assign roles for impostor mode
-		if (mode == GameModeType.IMPOSTOR) {
+		if (mode == GameModeType.IMPOSTOR || mode == GameModeType.INFECTION) {
 			hunters.clear();
 			speedrunners.clear();
 
@@ -470,31 +506,7 @@ public final class Manhunt implements ModInitializer {
 		// Start all hunters' compasses at a random runner
 		Random random = new Random();
 		for (UUID hunterUuid : hunters) {
-			// Convert set to list to allow index access
-			List<UUID> runnerList = new ArrayList<>(speedrunners);
-
-			if (runnerList.isEmpty()) continue; // avoid crash
-
-			UUID runnerUuid = runnerList.get(random.nextInt(runnerList.size()));
-
-			trackedMap.put(hunterUuid, runnerUuid);
-
-			ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
-			ServerPlayerEntity runner = pm.getPlayer(runnerUuid);
-
-			if (hunter != null && runner != null) {
-				PlayerInventory inv = hunter.getInventory();
-				ItemStack compass = new ItemStack(Items.COMPASS);
-				// Try to find the first empty main inventory slot (slots 9–35)
-				for (int slot = 9; slot < inv.size(); slot++) {
-					if (inv.getStack(slot).isEmpty()) {
-						inv.setStack(slot, compass);
-						break;
-					}
-				}
-
-				updateCompass(hunter, runner);
-			}
+			randomizeHunterTracking(hunterUuid, pm, random);
 		}
 
 		state = State.ON;
@@ -519,7 +531,7 @@ public final class Manhunt implements ModInitializer {
 		}, 10000L); // 10_000 ms = 10 seconds
 
 		// Only classic run logic remains
-		if (mode == GameModeType.IMPOSTOR) return Command.SINGLE_SUCCESS;
+		if (mode == GameModeType.IMPOSTOR || mode == GameModeType.INFECTION) return Command.SINGLE_SUCCESS;
 
 		for (final UUID uuid : hunters) {
 			final var hunter = pm.getPlayer(uuid);
@@ -569,5 +581,33 @@ public final class Manhunt implements ModInitializer {
 		}, Config.secondsBeforeRelease*1000L);
 		context.getSource().sendFeedback(() -> Text.literal("Game started!"), true);
 		return Command.SINGLE_SUCCESS;
+	}
+
+	private void randomizeHunterTracking(UUID hunterUuid, PlayerManager pm, Random random) {
+		// Convert set to list to allow index access
+		List<UUID> runnerList = new ArrayList<>(speedrunners);
+
+		if (runnerList.isEmpty()) return;
+
+		UUID runnerUuid = runnerList.get(random.nextInt(runnerList.size()));
+
+		trackedMap.put(hunterUuid, runnerUuid);
+
+		ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
+		ServerPlayerEntity runner = pm.getPlayer(runnerUuid);
+
+		if (hunter != null && runner != null) {
+			PlayerInventory inv = hunter.getInventory();
+			ItemStack compass = new ItemStack(Items.COMPASS);
+			// Try to find the first empty main inventory slot (slots 9–35)
+			for (int slot = 9; slot < inv.size(); slot++) {
+				if (inv.getStack(slot).isEmpty()) {
+					inv.setStack(slot, compass);
+					break;
+				}
+			}
+
+			updateCompass(hunter, runner);
+		}
 	}
 }

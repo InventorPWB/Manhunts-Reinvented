@@ -20,7 +20,7 @@ public abstract class RemoveChatMixin {
 
     @Inject(method = "onChatMessage", at = @At("HEAD"), cancellable = true)
     private void init(ChatMessageC2SPacket packet, CallbackInfo ci) {
-        if (Manhunt.INSTANCE.isActive() && Manhunt.INSTANCE.isModeImpostor() && Config.disableImpostorGameChat) {
+        if (Manhunt.INSTANCE.isActive() && (Manhunt.INSTANCE.isModeImpostor() || Manhunt.INSTANCE.isModeInfection()) && Config.disableImpostorGameChat) {
             this.getPlayer().sendMessageToClient(Text.of("Chat is disabled."),false);
             ci.cancel();
         }
