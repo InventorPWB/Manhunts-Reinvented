@@ -52,6 +52,7 @@ import net.minecraft.text.Text;
 
 import net.minecraft.util.math.GlobalPos;
 import net.minecraft.world.GameMode;
+import org.jetbrains.annotations.NotNull;
 
 public final class Manhunt implements ModInitializer {
 	public static final String MOD_ID = "manhunt";
@@ -66,11 +67,106 @@ public final class Manhunt implements ModInitializer {
 
 	private Timer timer = new Timer();
 
+	private static int alertPlayer(CommandContext<ServerCommandSource> context) {
+		ServerPlayerEntity player = context.getSource().getPlayer();
+		assert player != null;
+
+		Vec3d posVec = player.getPos();
+		int x = (int) Math.round(posVec.x);
+		int y = (int) Math.round(posVec.y);
+		int z = (int) Math.round(posVec.z);
+
+		String playerName = player.getName().getString();
+		String dimension = player.getWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
+		String formatted = switch (dimension) {
+			case "minecraft:overworld" -> "Overworld";
+			case "minecraft:the_nether" -> "Nether";
+			case "minecraft:the_end" -> "End";
+			default -> dimension;
+		};
+
+		String pos = String.format("(%d, %d, %d)", x, y, z);
+		String message = String.format("%s sent an alert at %s in the %s!", playerName, pos, formatted);
+
+		context.getSource().getServer().getPlayerManager().broadcast(
+				Text.literal(message),
+				false
+		);
+		return Command.SINGLE_SUCCESS;
+	}
+
+	private static int lostPlayer(CommandContext<ServerCommandSource> context) {
+		ServerPlayerEntity player = context.getSource().getPlayer();
+		assert player != null;
+
+		String playerName = player.getName().getString();
+		context.getSource().getServer().getPlayerManager().broadcast(
+				Text.literal(playerName + " is lost and needs coordinates!"),
+				false // false = broadcast to all players, not ops only
+		);
+		return Command.SINGLE_SUCCESS;
+	}
+
+	private int rolePlayer(CommandContext<ServerCommandSource> context) {
+        int result = Command.SINGLE_SUCCESS;
+        ServerPlayerEntity player = context.getSource().getPlayer();
+		assert player != null;
+
+		if (!INSTANCE.isActive()) {
+			context.getSource().getPlayer().sendMessage(Text.literal("There is no active manhunt!"));
+        } else {
+            boolean isHunter = hunters.contains(player.getUuid());
+            context.getSource().getPlayer().sendMessage(Text.literal(String.format("You are a %s", isHunter ? "Hunter!" : "Speedrunner!")));
+        }
+
+        return result;
+    }
+
+	private int stopManhunt(CommandContext<ServerCommandSource> context) {
+        int result = Command.SINGLE_SUCCESS;
+
+        if (state == State.OFF) {
+			context.getSource().sendFeedback(() -> Text.literal("There is no active manhunt!"), true);
+        } else {
+            state = State.OFF;
+            speedrunners.clear();
+            hunters.clear();
+            trackedMap.clear();
+            deadNames.clear();// Show death messages
+            context.getSource().getServer().getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(true, context.getSource().getServer());
+            final PlayerManager pm = context.getSource().getServer().getPlayerManager();
+            for (final UUID hunter : hunters) {
+                final ServerPlayerEntity player = pm.getPlayer(hunter);
+                if (player != null) {
+                    // Remove all compasses from the inventory
+                    player.getInventory().remove(
+                        stack -> stack.getItem() == Items.COMPASS,  // Predicate<ItemStack>
+                        Integer.MAX_VALUE,                          // Max count to remove
+                        player.getInventory()                       // Inventory context (usually itself)
+                    );
+                    player.sendMessage(Text.literal("Your tracking compass has been removed.").formatted(Formatting.GRAY), false);
+                }
+            }
+            hunters.clear();
+            trackedMap.clear();
+            context.getSource().sendFeedback(() -> Text.literal("Manhunt stopped!"), true);
+        }
+
+        return result;
+    }
+
+	private int resetTimer(CommandContext<ServerCommandSource> context) {
+		state = State.ON;
+		setTimer(context.getSource().getServer().getPlayerManager());
+		context.getSource().sendFeedback(() -> Text.literal("Timer reset"), true);
+		return Command.SINGLE_SUCCESS;
+	}
+
 	private enum State {
 		ON, OFF
 	}
 
-	private enum GameModeType {
+	public enum GameModeType {
 		CLASSIC,
 		IMPOSTOR,
 		INFECTION
@@ -86,7 +182,7 @@ public final class Manhunt implements ModInitializer {
 
 	/** Returns true if the given UUID is marked as dead in this Manhunt. */
 	public boolean isDead(Text name) {
-		return deadNames.contains(name);
+		return INSTANCE.deadNames.contains(name);
 	}
 
 	/** Returns true if the current manhunt is an impostor manhunt **/
@@ -110,90 +206,43 @@ public final class Manhunt implements ModInitializer {
 		final LiteralArgumentBuilder<ServerCommandSource> command = literal("manhunt");
 
 		final LiteralArgumentBuilder<ServerCommandSource> lost = literal("lost");
-		lost.executes(context -> {
-			ServerPlayerEntity player = context.getSource().getPlayer();
-			assert player != null;
-
-			String playerName = player.getName().getString();
-			context.getSource().getServer().getPlayerManager().broadcast(
-					Text.literal(playerName + " is lost and needs coordinates!"),
-					false // false = broadcast to all players, not ops only
-			);
-			return Command.SINGLE_SUCCESS;
-		});
+		lost.executes(Manhunt::lostPlayer);
 
 		final LiteralArgumentBuilder<ServerCommandSource> alert = literal("alert");
-		alert.executes(context -> {
-			ServerPlayerEntity player = context.getSource().getPlayer();
-			assert player != null;
+		alert.executes(Manhunt::alertPlayer);
 
-			Vec3d posVec = player.getPos();
-			int x = (int) Math.round(posVec.x);
-			int y = (int) Math.round(posVec.y);
-			int z = (int) Math.round(posVec.z);
+		final LiteralArgumentBuilder<ServerCommandSource> role = literal("role");
+		role.executes(INSTANCE::rolePlayer);
 
-			String playerName = player.getName().getString();
-			String dimension = player.getWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
-			String formatted = switch (dimension) {
-				case "minecraft:overworld" -> "Overworld";
-				case "minecraft:the_nether" -> "Nether";
-				case "minecraft:the_end" -> "End";
-				default -> dimension;
-			};
+		final LiteralArgumentBuilder<ServerCommandSource> track = literal("track");
+		track.then(RequiredArgumentBuilder.argument("player", EntityArgumentType.player()));
+		track.executes(context -> {
+			final var source = context.getSource();
+			final var tracked = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
+			assert tracked.getDisplayName() != null;
+			final var player = source.getPlayer();
+			if (player == null) return 2;
+			final var uuid = player.getUuid();
 
-			String pos = String.format("(%d, %d, %d)", x, y, z);
-			String message = String.format("%s sent an alert at %s in the %s!", playerName, pos, formatted);
+			if (!hunters.contains(uuid)) {
+				source.sendFeedback(() -> Text.literal("You aren't a hunter!"), false);
+				return Command.SINGLE_SUCCESS;
+			}
 
-			context.getSource().getServer().getPlayerManager().broadcast(
-					Text.literal(message),
-					false
-			);
+			if (trackedMap.get(uuid) != null && trackedMap.get(uuid) == tracked.getUuid()) {
+				source.sendFeedback(() -> Text.literal("Already tracking "+tracked.getDisplayName().getString()), false);
+				return Command.SINGLE_SUCCESS;
+			}
+			trackedMap.put(player.getUuid(), tracked.getUuid());
+			updateCompass(player, tracked);
+			source.sendFeedback(() -> Text.literal("Tracking "+tracked.getDisplayName().getString()), false);
 			return Command.SINGLE_SUCCESS;
 		});
 
-		final LiteralArgumentBuilder<ServerCommandSource> track = literal("track");
-		track.then(RequiredArgumentBuilder.<ServerCommandSource, EntitySelector>argument("player", EntityArgumentType.player())
-			.executes(context -> {
-				final var source = context.getSource();
-				final var tracked = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
-				assert tracked.getDisplayName() != null;
-				final var player = source.getPlayer();
-				if (player == null) return 2;
-				final var uuid = player.getUuid();
-
-				if (!hunters.contains(uuid)) {
-					source.sendFeedback(() -> Text.literal("You aren't a hunter!"), false);
-					return Command.SINGLE_SUCCESS;
-				}
-
-				if (trackedMap.get(uuid) != null && trackedMap.get(uuid) == tracked.getUuid()) {
-					source.sendFeedback(() -> Text.literal("Already tracking "+tracked.getDisplayName().getString()), false);
-					return Command.SINGLE_SUCCESS;
-				}
-				trackedMap.put(player.getUuid(), tracked.getUuid());
-				updateCompass(player, tracked);
-				source.sendFeedback(() -> Text.literal("Tracking "+tracked.getDisplayName().getString()), false);
-				return Command.SINGLE_SUCCESS;
-			})
-		);
 		final LiteralArgumentBuilder<ServerCommandSource> team = literal("team");
 		final RequiredArgumentBuilder<ServerCommandSource, EntitySelector> teamP = RequiredArgumentBuilder.argument("player", EntityArgumentType.player());
-		teamP.then(LiteralArgumentBuilder.<ServerCommandSource>literal("hunter").executes(context -> {
-			final var p = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
-				speedrunners.remove(p.getUuid());
-			hunters.add(p.getUuid());
-			assert p.getDisplayName() != null;
-			context.getSource().sendFeedback(() -> Text.literal(p.getDisplayName().getString()+" added to hunter"), true);
-			return Command.SINGLE_SUCCESS;
-		}))
-		.then(LiteralArgumentBuilder.<ServerCommandSource>literal("speedrunner").executes(context -> {
-			final var p = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
-			hunters.remove(p.getUuid());
-			speedrunners.add(p.getUuid());
-			assert p.getDisplayName() != null;
-			context.getSource().sendFeedback(() -> Text.literal(p.getDisplayName().getString()+" added to speedrunner"), true);
-			return Command.SINGLE_SUCCESS;
-		}));
+		teamP.then(LiteralArgumentBuilder.<ServerCommandSource>literal("hunter").executes(addPlayerTeam(speedrunners, hunters, " added to hunter")))
+		.then(LiteralArgumentBuilder.<ServerCommandSource>literal("speedrunner").executes(addPlayerTeam(hunters, speedrunners, " added to speedrunner")));
 		team.then(teamP);
 		final LiteralArgumentBuilder<ServerCommandSource> start = literal("start");
 		start.requires(source -> source.hasPermissionLevel(2));
@@ -235,52 +284,11 @@ public final class Manhunt implements ModInitializer {
 
 		final LiteralArgumentBuilder<ServerCommandSource> stop = literal("stop");
 		stop.requires(source -> source.hasPermissionLevel(2));
-		stop.executes((CommandContext<ServerCommandSource> context) -> {
-
-			if (state == State.OFF) {
-				context.getSource().sendFeedback(() -> Text.literal("There is no active manhunt!"), true);
-				return Command.SINGLE_SUCCESS;
-			}
-
-			state = State.OFF;
-			speedrunners.clear();
-			hunters.clear();
-			trackedMap.clear();
-			deadNames.clear();
-
-			// Show death messages
-			context.getSource().getServer().getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(true, context.getSource().getServer());
-
-			final PlayerManager pm = context.getSource().getServer().getPlayerManager();
-
-			for (final UUID hunter : hunters) {
-				final ServerPlayerEntity player = pm.getPlayer(hunter);
-				if (player != null) {
-					// Remove all compasses from the inventory
-					player.getInventory().remove(
-						stack -> stack.getItem() == Items.COMPASS,  // Predicate<ItemStack>
-						Integer.MAX_VALUE,                          // Max count to remove
-						player.getInventory()                       // Inventory context (usually itself)
-					);
-					player.sendMessage(Text.literal("Your tracking compass has been removed.").formatted(Formatting.GRAY), false);
-				}
-			}
-
-			hunters.clear();
-			trackedMap.clear();
-
-			context.getSource().sendFeedback(() -> Text.literal("Manhunt stopped!"), true);
-			return Command.SINGLE_SUCCESS;
-		});
+		stop.executes(this::stopManhunt);
 
 		final LiteralArgumentBuilder<ServerCommandSource> resetTimer = literal("reset-timer");
 		resetTimer.requires(source -> source.hasPermissionLevel(2));
-		resetTimer.executes(context -> {
-			state = State.ON;
-			setTimer(context.getSource().getServer().getPlayerManager());
-			context.getSource().sendFeedback(() -> Text.literal("Timer reset"), true);
-			return Command.SINGLE_SUCCESS;
-		});
+		resetTimer.executes(this::resetTimer);
 
 		command.then(track);
 		command.then(team);
@@ -289,6 +297,7 @@ public final class Manhunt implements ModInitializer {
 		command.then(stop);
 		command.then(lost);
 		command.then(alert);
+		command.then(role);
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(command));
 
@@ -301,15 +310,35 @@ public final class Manhunt implements ModInitializer {
 			}
 
 			speedrunners.remove(uuid);
+			PlayerManager pm = newPlayer.server.getPlayerManager();
+
+			for (UUID hunterUuid : hunters) {
+				ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
+                assert hunter != null;
+                hunter.sendMessage(Text.literal(String.format("%s has died!" + (manhuntMode == GameModeType.INFECTION ? " They are now a hunter." : ""), newPlayer.getName())).formatted(Formatting.DARK_RED));
+			}
 
 			if (manhuntMode == GameModeType.INFECTION) {
 				hunters.add(uuid);
 
-				PlayerManager pm = newPlayer.server.getPlayerManager();
 				ServerPlayerEntity player = pm.getPlayer(uuid);
 				assert player != null;
 
 				player.sendMessage(Text.literal("You died! You are now a hunter. Try to stop the remaining speedrunners!").formatted(Formatting.DARK_RED));
+
+				final var players = pm.getPlayerList();
+				List<ServerPlayerEntity> hunterPlayers = players.stream()
+					.filter(p -> hunters.contains(p.getUuid()))
+					.toList();
+
+				String teammateNames = hunterPlayers.stream()
+					.filter(other -> !other.getUuid().equals(newPlayer.getUuid()))
+					.map(ServerPlayerEntity::getName)
+					.map(Text::getString)
+					.collect(Collectors.joining(", "));
+
+				newPlayer.sendMessage(Text.literal("Your fellow hunter" + (teammateNames.length() > 1 ? "s are: " : " is: ") + teammateNames).formatted(Formatting.RED), false);
+
 				newPlayer.giveItemStack(new ItemStack(Items.COMPASS));
 
 				Random random = new Random();
@@ -345,6 +374,17 @@ public final class Manhunt implements ModInitializer {
 			EntityType.PIGLIN.spawn(world, entity.getBlockPos(), SpawnReason.MOB_SUMMONED);
 			entity.discard();
 		});
+	}
+
+	private @NotNull Command<ServerCommandSource> addPlayerTeam(Set<UUID> speedrunners, Set<UUID> hunters, String x) {
+		return context -> {
+			final var p = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
+			speedrunners.remove(p.getUuid());
+			hunters.add(p.getUuid());
+			assert p.getDisplayName() != null;
+			context.getSource().sendFeedback(() -> Text.literal(p.getDisplayName().getString() + x), true);
+			return Command.SINGLE_SUCCESS;
+		};
 	}
 
 	/**

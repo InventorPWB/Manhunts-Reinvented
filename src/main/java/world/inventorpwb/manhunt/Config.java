@@ -7,5 +7,5 @@ public class Config extends MidnightConfig {
     @Entry(category = "timings") public static int updateCompassEach = 5;
     @Entry(category = "gameplay") public static boolean removePiglinBrutes = false;
     @Entry(category = "gameplay") public static boolean disableImpostorGameChat = true;
-    @Entry(category = "gameplay") public static boolean disableMessaging = true;
+    @Entry(category = "gameplay") public static boolean disableMessaging = false;
 }
