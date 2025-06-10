@@ -215,29 +215,30 @@ public final class Manhunt implements ModInitializer {
 		role.executes(INSTANCE::rolePlayer);
 
 		final LiteralArgumentBuilder<ServerCommandSource> track = literal("track");
-		track.then(RequiredArgumentBuilder.argument("player", EntityArgumentType.player()));
-		track.executes(context -> {
-			final var source = context.getSource();
-			final var tracked = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
-			assert tracked.getDisplayName() != null;
-			final var player = source.getPlayer();
-			if (player == null) return 2;
-			final var uuid = player.getUuid();
+		track.then(RequiredArgumentBuilder.<ServerCommandSource, EntitySelector>argument("player", EntityArgumentType.player())
+			.executes(context -> {
+				final var source = context.getSource();
+				final var tracked = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
+				assert tracked.getDisplayName() != null;
+				final var player = source.getPlayer();
+				if (player == null) return 2;
+				final var uuid = player.getUuid();
 
-			if (!hunters.contains(uuid)) {
-				source.sendFeedback(() -> Text.literal("You aren't a hunter!"), false);
-				return Command.SINGLE_SUCCESS;
-			}
+				if (!hunters.contains(uuid)) {
+					source.sendFeedback(() -> Text.literal("You aren't a hunter!"), false);
+					return Command.SINGLE_SUCCESS;
+				}
 
-			if (trackedMap.get(uuid) != null && trackedMap.get(uuid) == tracked.getUuid()) {
-				source.sendFeedback(() -> Text.literal("Already tracking "+tracked.getDisplayName().getString()), false);
+				if (trackedMap.get(uuid) != null && trackedMap.get(uuid) == tracked.getUuid()) {
+					source.sendFeedback(() -> Text.literal("Already tracking "+tracked.getDisplayName().getString()), false);
+					return Command.SINGLE_SUCCESS;
+				}
+				trackedMap.put(player.getUuid(), tracked.getUuid());
+				updateCompass(player, tracked);
+				source.sendFeedback(() -> Text.literal("Tracking "+tracked.getDisplayName().getString()), false);
 				return Command.SINGLE_SUCCESS;
-			}
-			trackedMap.put(player.getUuid(), tracked.getUuid());
-			updateCompass(player, tracked);
-			source.sendFeedback(() -> Text.literal("Tracking "+tracked.getDisplayName().getString()), false);
-			return Command.SINGLE_SUCCESS;
-		});
+			})
+		);
 
 		final LiteralArgumentBuilder<ServerCommandSource> team = literal("team");
 		final RequiredArgumentBuilder<ServerCommandSource, EntitySelector> teamP = RequiredArgumentBuilder.argument("player", EntityArgumentType.player());
@@ -315,7 +316,9 @@ public final class Manhunt implements ModInitializer {
 			for (UUID hunterUuid : hunters) {
 				ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
                 assert hunter != null;
-                hunter.sendMessage(Text.literal(String.format("%s has died!" + (manhuntMode == GameModeType.INFECTION ? " They are now a hunter." : ""), newPlayer.getName())).formatted(Formatting.DARK_RED));
+				String newPlayerName = newPlayer.getName().getString();
+                hunter.sendMessage(Text.literal(String.format("%s has died!" + (manhuntMode == GameModeType.INFECTION ? " They are now a hunter." : ""), newPlayerName))
+					.formatted(Formatting.DARK_RED));
 			}
 
 			if (manhuntMode == GameModeType.INFECTION) {
