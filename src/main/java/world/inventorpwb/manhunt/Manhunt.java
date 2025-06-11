@@ -350,12 +350,6 @@ public final class Manhunt implements ModInitializer {
 		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
 			if (state == State.OFF) return;
 			final var uuid = oldPlayer.getUuid();
-			if (hunters.contains(uuid)) {
-				newPlayer.giveItemStack(new ItemStack(Items.COMPASS));
-				return;
-			}
-
-			speedrunners.remove(uuid);
 			PlayerManager pm = newPlayer.server.getPlayerManager();
 
 			for (UUID hunterUuid : hunters) {
@@ -365,6 +359,14 @@ public final class Manhunt implements ModInitializer {
                 hunter.sendMessage(Text.literal(String.format("%s has died!" + (manhuntMode == GameModeType.INFECTION ? " They are now a hunter." : ""), newPlayerName))
 					.formatted(Formatting.DARK_RED));
 			}
+
+			if (hunters.contains(uuid)) {
+				newPlayer.giveItemStack(new ItemStack(Items.COMPASS));
+				randomizeHunterTracking(uuid, pm, new Random());
+				return;
+			}
+
+			speedrunners.remove(uuid);
 
 			if (manhuntMode == GameModeType.INFECTION) {
 				hunters.add(uuid);
@@ -527,13 +529,7 @@ public final class Manhunt implements ModInitializer {
 			return;
 		}
 
-		// Set the compass slot
-		if (slot > -1) {
-			inv.setStack(slot, is);
-		} else {
-			player.giveItemStack(is);
-		}
-
+		inv.setStack(slot, is);
 	}
 
 	private int startGame(CommandContext<ServerCommandSource> context, GameModeType mode, int impostors) {
@@ -570,8 +566,8 @@ public final class Manhunt implements ModInitializer {
 
 			context.getSource().getServer().getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(false, context.getSource().getServer());
 
-			if (players.size() < 2) {
-				context.getSource().sendFeedback(() -> Text.literal("At least 2 players are required for impostor mode."), false);
+			if (players.size() < 3) {
+				context.getSource().sendFeedback(() -> Text.literal("At least 3 players are required for impostor/infection mode."), false);
 				return Command.SINGLE_SUCCESS;
 			}
 
