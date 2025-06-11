@@ -11,5 +11,6 @@ public class Config extends MidnightConfig {
     @Entry(category = "gameplay") public static int maximumReveals = 1;
     @Entry(category = "gameplay") public static boolean hunterChat = true;
     @Entry(category = "gameplay") public static boolean speedrunnerChat = true;
-
+    @Entry(category = "gameplay") public static boolean enableWorldBorder = true;
+    @Entry(category = "gameplay") public static boolean enableOnePlayerSleeping = true;
 }

@@ -13,12 +13,14 @@ import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameRules;
 import net.minecraft.world.World;
+import net.minecraft.world.border.WorldBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -611,7 +613,8 @@ public final class Manhunt implements ModInitializer {
 		// 2) Create a new Timer so no old tasks remain:
 		timer = new Timer();
 
-		final PlayerManager pm = context.getSource().getServer().getPlayerManager();
+		MinecraftServer server = context.getSource().getServer();
+		final PlayerManager pm = server.getPlayerManager();
 		final var players = pm.getPlayerList();
 
 		for (final ServerPlayerEntity player : players) {
@@ -625,12 +628,34 @@ public final class Manhunt implements ModInitializer {
 			player.teleport(spawn.getX(), spawn.getY(), spawn.getZ(), false);
 		}
 
+		// Enable one player sleeping through gamerule depending on config
+		if (Config.enableOnePlayerSleeping) {
+			server.getGameRules().get(GameRules.PLAYERS_SLEEPING_PERCENTAGE).set(0, server);
+		}
+
+		if (Config.enableWorldBorder) {
+			// Get the overworld
+			ServerWorld overworld = server.getWorld(World.OVERWORLD);
+			if (overworld == null) {
+				context.getSource().sendError(Text.literal("Overworld not found!"));
+				return 0;
+			}
+
+			WorldBorder border = overworld.getWorldBorder();
+
+			// Set world border center
+			border.setCenter(0.0, 0.0);
+
+			// Set the border size (full diameter in blocks)
+			border.setSize(8000.0);
+		}
+
 		// Assign roles for impostor mode
 		if (mode == GameModeType.IMPOSTOR || mode == GameModeType.INFECTION) {
 			hunters.clear();
 			speedrunners.clear();
 
-			context.getSource().getServer().getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(false, context.getSource().getServer());
+			server.getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(false, server);
 
 			if (players.size() < 3) {
 				context.getSource().sendFeedback(() -> Text.literal("At least 3 players are required for impostor/infection mode."), false);
