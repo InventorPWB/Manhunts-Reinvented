@@ -14,8 +14,11 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Position;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameRules;
+import net.minecraft.world.World;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -64,6 +67,8 @@ public final class Manhunt implements ModInitializer {
 	private final Set<UUID> speedrunners = new HashSet<>();
 	private final Set<Text> deadNames = new HashSet<>();
 	private final Map<UUID, UUID> trackedMap = new HashMap<>();
+	private final Map<UUID, Integer> usedReveals = new HashMap<>();
+	private final Map<UUID, Map<RegistryKey<World>, BlockPos>> lastPlayerPositions = new HashMap<>();
 
 	private Timer timer = new Timer();
 
@@ -78,12 +83,7 @@ public final class Manhunt implements ModInitializer {
 
 		String playerName = player.getName().getString();
 		String dimension = player.getWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
-		String formatted = switch (dimension) {
-			case "minecraft:overworld" -> "Overworld";
-			case "minecraft:the_nether" -> "Nether";
-			case "minecraft:the_end" -> "End";
-			default -> dimension;
-		};
+		String formatted = formatDimension(dimension);
 
 		String pos = String.format("(%d, %d, %d)", x, y, z);
 		String message = String.format("%s sent an alert at %s in the %s!", playerName, pos, formatted);
@@ -190,8 +190,18 @@ public final class Manhunt implements ModInitializer {
 		return INSTANCE.manhuntMode == GameModeType.IMPOSTOR;
 	}
 
+	/** Returns true if the current manhunt is an infection manhunt **/
 	public boolean isModeInfection() {
 		return INSTANCE.manhuntMode == GameModeType.INFECTION;
+	}
+
+	private static String formatDimension(String dimension) {
+        return switch (dimension) {
+            case "minecraft:overworld" -> "Overworld";
+            case "minecraft:the_nether" -> "Nether";
+            case "minecraft:the_end" -> "End";
+            default -> dimension;
+        };
 	}
 
 	@Override
@@ -213,6 +223,41 @@ public final class Manhunt implements ModInitializer {
 
 		final LiteralArgumentBuilder<ServerCommandSource> role = literal("role");
 		role.executes(INSTANCE::rolePlayer);
+
+		final LiteralArgumentBuilder<ServerCommandSource> reveal = literal("reveal");
+		reveal.then(RequiredArgumentBuilder.<ServerCommandSource, EntitySelector>argument("player", EntityArgumentType.player())
+			.executes(context -> {
+				ServerPlayerEntity player = context.getSource().getPlayer();
+				final var source = context.getSource();
+				final var revealedPlayer = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
+
+				assert player != null;
+                assert revealedPlayer != null;
+
+				if (usedReveals.get(player.getUuid()) >= Config.maximumReveals) {
+					source.sendFeedback(() -> Text.literal("You already used all your reveals!"), false);
+					return Command.SINGLE_SUCCESS;
+				}
+
+                Vec3d posVec = revealedPlayer.getPos();
+				int x = (int) Math.round(posVec.x);
+				int y = (int) Math.round(posVec.y);
+				int z = (int) Math.round(posVec.z);
+
+				String playerName = revealedPlayer.getName().getString();
+				String dimension = revealedPlayer.getWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
+				String formatted = formatDimension(dimension);
+
+				usedReveals.put(player.getUuid(), usedReveals.get(player.getUuid()) + 1);
+				int revealsLeft = Config.maximumReveals - usedReveals.get(player.getUuid());
+
+				String pos = String.format("(%d, %d, %d)", x, y, z);
+				String message = String.format("%s is at %s in the %s! You have %d reveals left.", playerName, pos, formatted, revealsLeft);
+
+				source.sendFeedback(() -> Text.literal(message).formatted(Formatting.GOLD), false);
+				return Command.SINGLE_SUCCESS;
+			})
+		);
 
 		final LiteralArgumentBuilder<ServerCommandSource> track = literal("track");
 		track.then(RequiredArgumentBuilder.<ServerCommandSource, EntitySelector>argument("player", EntityArgumentType.player())
@@ -299,6 +344,7 @@ public final class Manhunt implements ModInitializer {
 		command.then(lost);
 		command.then(alert);
 		command.then(role);
+		command.then(reveal);
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(command));
 
@@ -423,7 +469,20 @@ public final class Manhunt implements ModInitializer {
 	}
 
 	private void updateCompass(ServerPlayerEntity player, ServerPlayerEntity tracked) {
-		final var trackerComponent = new LodestoneTrackerComponent(Optional.of(GlobalPos.create(tracked.getWorld().getRegistryKey(), tracked.getBlockPos())), true);
+		// Get the world (dimension) keys of the tracked player and hunter player
+		RegistryKey<World> trackedDimensionKey = tracked.getWorld().getRegistryKey();
+		RegistryKey<World> hunterDimensionKey = player.getWorld().getRegistryKey();
+
+		// Get the tracked player's block position
+		BlockPos trackedBlockPos = tracked.getBlockPos();
+
+		// Assign the tracked player's current position in whatever dimension they are in
+		Map<RegistryKey<World>, BlockPos> trackedPositions =
+				lastPlayerPositions.computeIfAbsent(tracked.getUuid(), k -> new HashMap<>());
+		trackedPositions.put(trackedDimensionKey, trackedBlockPos);
+
+		// Add the tracked player's last position in the hunter's dimension onto a tracker component
+		final var trackerComponent = new LodestoneTrackerComponent(Optional.of(GlobalPos.create(hunterDimensionKey, lastPlayerPositions.get(tracked.getUuid()).get(hunterDimensionKey))), true);
 
 		ItemStack is = null;
 		int slot = PlayerInventory.NOT_FOUND;
@@ -470,7 +529,12 @@ public final class Manhunt implements ModInitializer {
 		}
 
 		// Set the compass slot
-		inv.setStack(slot, is);
+		if (slot > -1) {
+			inv.setStack(slot, is);
+		} else {
+			player.giveItemStack(is);
+		}
+
 	}
 
 	private int startGame(CommandContext<ServerCommandSource> context, GameModeType mode, int impostors) {
