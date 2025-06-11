@@ -9,4 +9,7 @@ public class Config extends MidnightConfig {
     @Entry(category = "gameplay") public static boolean disableImpostorGameChat = true;
     @Entry(category = "gameplay") public static boolean disableMessaging = false;
     @Entry(category = "gameplay") public static int maximumReveals = 1;
+    @Entry(category = "gameplay") public static boolean hunterChat = true;
+    @Entry(category = "gameplay") public static boolean speedrunnerChat = true;
+
 }

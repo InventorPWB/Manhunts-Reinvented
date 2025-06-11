@@ -4,6 +4,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.enchantment.Enchantment;
 import net.minecraft.enchantment.Enchantments;
 import net.minecraft.registry.Registry;
@@ -335,6 +336,56 @@ public final class Manhunt implements ModInitializer {
 		resetTimer.requires(source -> source.hasPermissionLevel(2));
 		resetTimer.executes(this::resetTimer);
 
+		final LiteralArgumentBuilder<ServerCommandSource> chat = literal("chat");
+		chat.then(CommandManager.argument("message", StringArgumentType.string())
+			.executes(context -> {
+				ServerPlayerEntity player = context.getSource().getPlayer();
+                assert player != null;
+
+				String messageText = StringArgumentType.getString(context, "message");
+				PlayerManager pm = context.getSource().getServer().getPlayerManager();
+				boolean isHunter = hunters.contains(player.getUuid());
+
+				// Build the team label
+				Text teamLabel = Text.literal("[")
+						.append(Text.literal(isHunter ? "Hunters" : "Speedrunners")
+								.styled(style -> style.withColor(isHunter ? Formatting.RED : Formatting.GREEN)))
+						.append(Text.literal("] "));
+
+				// Username (white)
+				Text username = Text.literal(player.getName().getString())
+						.styled(style -> style.withColor(Formatting.WHITE));
+
+				// Message (also white, but separate for clarity)
+				Text content = Text.literal(": " + messageText)
+						.styled(style -> style.withColor(Formatting.WHITE));
+
+				// Final composed message
+				Text formatted = Text.empty().append(teamLabel).append(username).append(content);
+
+				if (isHunter && Config.hunterChat) {
+					for (UUID hunterUuid : hunters) {
+						ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
+						assert hunter != null;
+
+						hunter.sendMessage(formatted);
+					}
+				} else if (Config.speedrunnerChat && !INSTANCE.isModeImpostor() && !INSTANCE.isModeInfection()) {
+					for (UUID hunterUuid : speedrunners) {
+						ServerPlayerEntity runner = pm.getPlayer(hunterUuid);
+						assert runner != null;
+
+						runner.sendMessage(formatted);
+					}
+				} else {
+					context.getSource().sendFeedback(() -> Text.literal("You cannot send manhunt chat messages!"), false);
+					return Command.SINGLE_SUCCESS;
+				}
+
+				return Command.SINGLE_SUCCESS;
+			})
+		);
+
 		command.then(track);
 		command.then(team);
 		command.then(start);
@@ -344,6 +395,7 @@ public final class Manhunt implements ModInitializer {
 		command.then(alert);
 		command.then(role);
 		command.then(reveal);
+		command.then(chat);
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(command));
 
