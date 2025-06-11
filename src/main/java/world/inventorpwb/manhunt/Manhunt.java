@@ -227,34 +227,45 @@ public final class Manhunt implements ModInitializer {
 		final LiteralArgumentBuilder<ServerCommandSource> reveal = literal("reveal");
 		reveal.then(RequiredArgumentBuilder.<ServerCommandSource, EntitySelector>argument("player", EntityArgumentType.player())
 			.executes(context -> {
-				ServerPlayerEntity player = context.getSource().getPlayer();
-				final var source = context.getSource();
-				final var revealedPlayer = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
+				ServerPlayerEntity caller = context.getSource().getPlayer();
+                assert caller != null;
 
-				assert player != null;
-                assert revealedPlayer != null;
+                UUID callerId = caller.getUuid();
 
-				if (usedReveals.get(player.getUuid()) >= Config.maximumReveals) {
-					source.sendFeedback(() -> Text.literal("You already used all your reveals!"), false);
+				// use 0 if this is the first time
+				int usedCount = usedReveals.getOrDefault(callerId, 0);
+				if (usedCount >= Config.maximumReveals) {
+					context.getSource()
+							.sendFeedback(() -> Text.literal("You already used all your reveals!"), false);
 					return Command.SINGLE_SUCCESS;
 				}
 
-                Vec3d posVec = revealedPlayer.getPos();
-				int x = (int) Math.round(posVec.x);
-				int y = (int) Math.round(posVec.y);
-				int z = (int) Math.round(posVec.z);
+				ServerPlayerEntity target = EntityArgumentType.getPlayer(context, "player");
+				Vec3d posVec = target.getPos();
+				int x = (int) Math.round(posVec.x),
+					y = (int) Math.round(posVec.y),
+					z = (int) Math.round(posVec.z);
 
-				String playerName = revealedPlayer.getName().getString();
-				String dimension = revealedPlayer.getWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
-				String formatted = formatDimension(dimension);
+				// bump the counter
+				usedReveals.put(callerId, usedCount + 1);
+				int left = Config.maximumReveals - (usedCount + 1);
 
-				usedReveals.put(player.getUuid(), usedReveals.get(player.getUuid()) + 1);
-				int revealsLeft = Config.maximumReveals - usedReveals.get(player.getUuid());
+				String message = String.format(
+						"%s is at (%d, %d, %d) in the %s! You have %d reveals left.",
+						target.getName().getString(),
+						x, y, z,
+						formatDimension(target.getWorld()
+								.getRegistryKey()
+								.getValue()
+								.toString()),
+						left
+				);
 
-				String pos = String.format("(%d, %d, %d)", x, y, z);
-				String message = String.format("%s is at %s in the %s! You have %d reveals left.", playerName, pos, formatted, revealsLeft);
+				context.getSource()
+						.sendFeedback(() -> Text.literal(message)
+										.formatted(Formatting.GOLD),
+								false);
 
-				source.sendFeedback(() -> Text.literal(message).formatted(Formatting.GOLD), false);
 				return Command.SINGLE_SUCCESS;
 			})
 		);
@@ -404,20 +415,23 @@ public final class Manhunt implements ModInitializer {
 			final var uuid = oldPlayer.getUuid();
 			PlayerManager pm = newPlayer.server.getPlayerManager();
 
+			// Tell all hunters when someone dies
 			for (UUID hunterUuid : hunters) {
 				ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
                 assert hunter != null;
 				String newPlayerName = newPlayer.getName().getString();
-                hunter.sendMessage(Text.literal(String.format("%s has died!" + (manhuntMode == GameModeType.INFECTION ? " They are now a hunter." : ""), newPlayerName))
+                hunter.sendMessage(Text.literal(String.format("%s has died!" + ((manhuntMode == GameModeType.INFECTION && !hunters.contains(uuid)) ? " They are now a hunter." : ""), newPlayerName))
 					.formatted(Formatting.DARK_RED));
 			}
 
+			// Give deceased hunter a new compass
 			if (hunters.contains(uuid)) {
 				newPlayer.giveItemStack(new ItemStack(Items.COMPASS));
 				randomizeHunterTracking(uuid, pm, new Random());
 				return;
 			}
 
+			// If player was not a hunter already, continue
 			speedrunners.remove(uuid);
 
 			if (manhuntMode == GameModeType.INFECTION) {
