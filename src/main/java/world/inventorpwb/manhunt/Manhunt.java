@@ -350,7 +350,7 @@ public final class Manhunt implements ModInitializer {
 		resetTimer.executes(this::resetTimer);
 
 		final LiteralArgumentBuilder<ServerCommandSource> chat = literal("chat");
-		chat.then(CommandManager.argument("message", StringArgumentType.string())
+		chat.then(CommandManager.argument("message", StringArgumentType.greedyString())
 			.executes(context -> {
 				ServerPlayerEntity player = context.getSource().getPlayer();
                 assert player != null;
