@@ -10,7 +10,10 @@ The speedrunners win if the ender dragon is slain, and the hunters win if all th
 ### Impostor Mode
 This mode revolves around secrecy. The impostor(s) are randomly chosen from the players in the game, and are secretly given a compass and told their role upon the start of the manhunt. The impostors' goal is to stop the speedrunners from beating the game.
 
-Proximity voice chat is encouraged for this mode to enhance experience. Furthermore in impostor mode, things like achievements and join/leave messages for dead players are disabled so it isn't known if they are alive or not by the others. See below for details and config.
+Proximity voice chat is encouraged for this mode to enhance the experience. Furthermore in impostor mode, things like achievements and join/leave messages for dead players are disabled so it isn't known if they are alive or not by the others. See below for details and config.
+
+### Infection Mode
+This mode is similar to the impostor mode, with one change: speedrunners, upon death, also become hunters. This means that as the game progresses, it will become harder for speedrunners to win with an increasing number of secret hunters in the game. Once again, this mode is best played with proximity voice chat.
 
 ## Usage
 
@@ -34,6 +37,10 @@ Proximity voice chat is encouraged for this mode to enhance experience. Furtherm
 
 `/manhunt lost` sends a request for coordinates to other players.
 
+`/manhunt chat <message>` allows players to communicate with their teammates during a manhunt. Speedrunners cannot use this during impostor or infection games.
+
+`/manhunt reveal` can be used to get another player's exact coordinates and dimension. However, each player only gets one per game (by default). This amount can be changed in the config.
+
 ## Config File
 
 You can config the time before the release of the hunters and the time between two compass' updates by modifying the config
@@ -47,7 +54,12 @@ The default config file is:
   "updateCompassEach": 5,
   "removePiglinBrutes": false,
   "disableImpostorGameChat": true,
-  "disableMessaging": true
+  "disableMessaging": true,
+  "maximumReveals": 1,
+  "hunterChat": true,
+  "speedrunnerChat": true,
+  "enableWorldBorder": true,
+  "enableOnePlayerSleeping": true,
 }
 ```
 
@@ -56,6 +68,11 @@ The default config file is:
 - `removePiglinBrutes` allows the disabling of piglin brute spawning, instead spawning regular piglins in their place.
 - `disableImpostorGameChat` disables the regular game chat during impostor manhunts.
 - `disableMessaging` disables /msg and related messaging commands globally. Requires game restart.
+- `maximumReveals` is the amount of uses of `/manhunt reveal` that each player can use per game.
+- `hunterChat` is whether the hunters can use `/manhunt chat` to communicate with each other.
+- `speedrunnerChat` is whether speedrunners can use `/manhunt chat` to communicate with each other in non-impostor/infection modes.
+- `enableWorldBorder` is whether the game automatically creates a world border (of 4000 blocks in each direction) in the overworld. This is done to prevent runners from running too far away.
+- `enableOnePlayerSleeping` is an option to automatically turn on the gamerule for one player sleeping through the night.
 
 Warning: When you break a lodestone, the compass is still focused on that lodestone!
 
