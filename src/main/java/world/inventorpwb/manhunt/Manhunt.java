@@ -78,13 +78,13 @@ public final class Manhunt implements ModInitializer {
 		ServerPlayerEntity player = context.getSource().getPlayer();
 		assert player != null;
 
-		Vec3d posVec = player.getPos();
+		Vec3d posVec = new Vec3d(player.getX(), player.getY(), player.getZ());
 		int x = (int) Math.round(posVec.x);
 		int y = (int) Math.round(posVec.y);
 		int z = (int) Math.round(posVec.z);
 
 		String playerName = player.getName().getString();
-		String dimension = player.getWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
+		String dimension = player.getEntityWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
 		String formatted = formatDimension(dimension);
 
 		String pos = String.format("(%d, %d, %d)", x, y, z);
@@ -110,52 +110,52 @@ public final class Manhunt implements ModInitializer {
 	}
 
 	private int rolePlayer(CommandContext<ServerCommandSource> context) {
-        int result = Command.SINGLE_SUCCESS;
-        ServerPlayerEntity player = context.getSource().getPlayer();
+		int result = Command.SINGLE_SUCCESS;
+		ServerPlayerEntity player = context.getSource().getPlayer();
 		assert player != null;
 
 		if (!INSTANCE.isActive()) {
 			context.getSource().getPlayer().sendMessage(Text.literal("There is no active manhunt!"));
-        } else {
-            boolean isHunter = hunters.contains(player.getUuid());
-            context.getSource().getPlayer().sendMessage(Text.literal(String.format("You are a %s", isHunter ? "Hunter!" : "Speedrunner!")));
-        }
+		} else {
+			boolean isHunter = hunters.contains(player.getUuid());
+			context.getSource().getPlayer().sendMessage(Text.literal(String.format("You are a %s", isHunter ? "Hunter!" : "Speedrunner!")));
+		}
 
-        return result;
-    }
+		return result;
+	}
 
 	private int stopManhunt(CommandContext<ServerCommandSource> context) {
-        int result = Command.SINGLE_SUCCESS;
+		int result = Command.SINGLE_SUCCESS;
 
-        if (state == State.OFF) {
+		if (state == State.OFF) {
 			context.getSource().sendFeedback(() -> Text.literal("There is no active manhunt!"), true);
-        } else {
-            state = State.OFF;
-            speedrunners.clear();
-            hunters.clear();
-            trackedMap.clear();
-            deadNames.clear();// Show death messages
-            context.getSource().getServer().getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(true, context.getSource().getServer());
-            final PlayerManager pm = context.getSource().getServer().getPlayerManager();
-            for (final UUID hunter : hunters) {
-                final ServerPlayerEntity player = pm.getPlayer(hunter);
-                if (player != null) {
-                    // Remove all compasses from the inventory
-                    player.getInventory().remove(
-                        stack -> stack.getItem() == Items.COMPASS,  // Predicate<ItemStack>
-                        Integer.MAX_VALUE,                          // Max count to remove
-                        player.getInventory()                       // Inventory context (usually itself)
-                    );
-                    player.sendMessage(Text.literal("Your tracking compass has been removed.").formatted(Formatting.GRAY), false);
-                }
-            }
-            hunters.clear();
-            trackedMap.clear();
-            context.getSource().sendFeedback(() -> Text.literal("Manhunt stopped!"), true);
-        }
+		} else {
+			state = State.OFF;
+			speedrunners.clear();
+			hunters.clear();
+			trackedMap.clear();
+			deadNames.clear();// Show death messages
+			context.getSource().getServer().getGameRules().get(GameRules.SHOW_DEATH_MESSAGES).set(true, context.getSource().getServer());
+			final PlayerManager pm = context.getSource().getServer().getPlayerManager();
+			for (final UUID hunter : hunters) {
+				final ServerPlayerEntity player = pm.getPlayer(hunter);
+				if (player != null) {
+					// Remove all compasses from the inventory
+					player.getInventory().remove(
+							stack -> stack.getItem() == Items.COMPASS,  // Predicate<ItemStack>
+							Integer.MAX_VALUE,                          // Max count to remove
+							player.getInventory()                       // Inventory context (usually itself)
+					);
+					player.sendMessage(Text.literal("Your tracking compass has been removed.").formatted(Formatting.GRAY), false);
+				}
+			}
+			hunters.clear();
+			trackedMap.clear();
+			context.getSource().sendFeedback(() -> Text.literal("Manhunt stopped!"), true);
+		}
 
-        return result;
-    }
+		return result;
+	}
 
 	private int resetTimer(CommandContext<ServerCommandSource> context) {
 		state = State.ON;
@@ -198,12 +198,12 @@ public final class Manhunt implements ModInitializer {
 	}
 
 	private static String formatDimension(String dimension) {
-        return switch (dimension) {
-            case "minecraft:overworld" -> "Overworld";
-            case "minecraft:the_nether" -> "Nether";
-            case "minecraft:the_end" -> "End";
-            default -> dimension;
-        };
+		return switch (dimension) {
+			case "minecraft:overworld" -> "Overworld";
+			case "minecraft:the_nether" -> "Nether";
+			case "minecraft:the_end" -> "End";
+			default -> dimension;
+		};
 	}
 
 	@Override
@@ -228,103 +228,103 @@ public final class Manhunt implements ModInitializer {
 
 		final LiteralArgumentBuilder<ServerCommandSource> reveal = literal("reveal");
 		reveal.then(RequiredArgumentBuilder.<ServerCommandSource, EntitySelector>argument("player", EntityArgumentType.player())
-			.executes(context -> {
-				ServerPlayerEntity caller = context.getSource().getPlayer();
-                assert caller != null;
+				.executes(context -> {
+					ServerPlayerEntity caller = context.getSource().getPlayer();
+					assert caller != null;
 
-                UUID callerId = caller.getUuid();
+					UUID callerId = caller.getUuid();
 
-				// use 0 if this is the first time
-				int usedCount = usedReveals.getOrDefault(callerId, 0);
-				if (usedCount >= Config.maximumReveals) {
+					// use 0 if this is the first time
+					int usedCount = usedReveals.getOrDefault(callerId, 0);
+					if (usedCount >= Config.maximumReveals) {
+						context.getSource()
+								.sendFeedback(() -> Text.literal("You already used all your reveals!"), false);
+						return Command.SINGLE_SUCCESS;
+					}
+
+					ServerPlayerEntity target = EntityArgumentType.getPlayer(context, "player");
+					Vec3d posVec = new Vec3d(target.getX(), target.getY(), target.getZ());
+					int x = (int) Math.round(posVec.x),
+							y = (int) Math.round(posVec.y),
+							z = (int) Math.round(posVec.z);
+
+					// bump the counter
+					usedReveals.put(callerId, usedCount + 1);
+					int left = Config.maximumReveals - (usedCount + 1);
+
+					String message = String.format(
+							"%s is at (%d, %d, %d) in the %s! You have %d reveals left.",
+							target.getName().getString(),
+							x, y, z,
+							formatDimension(target.getEntityWorld()
+									.getRegistryKey()
+									.getValue()
+									.toString()),
+							left
+					);
+
 					context.getSource()
-							.sendFeedback(() -> Text.literal("You already used all your reveals!"), false);
+							.sendFeedback(() -> Text.literal(message)
+											.formatted(Formatting.GOLD),
+									false);
+
 					return Command.SINGLE_SUCCESS;
-				}
-
-				ServerPlayerEntity target = EntityArgumentType.getPlayer(context, "player");
-				Vec3d posVec = target.getPos();
-				int x = (int) Math.round(posVec.x),
-					y = (int) Math.round(posVec.y),
-					z = (int) Math.round(posVec.z);
-
-				// bump the counter
-				usedReveals.put(callerId, usedCount + 1);
-				int left = Config.maximumReveals - (usedCount + 1);
-
-				String message = String.format(
-						"%s is at (%d, %d, %d) in the %s! You have %d reveals left.",
-						target.getName().getString(),
-						x, y, z,
-						formatDimension(target.getWorld()
-								.getRegistryKey()
-								.getValue()
-								.toString()),
-						left
-				);
-
-				context.getSource()
-						.sendFeedback(() -> Text.literal(message)
-										.formatted(Formatting.GOLD),
-								false);
-
-				return Command.SINGLE_SUCCESS;
-			})
+				})
 		);
 
 		final LiteralArgumentBuilder<ServerCommandSource> track = literal("track");
 		track.then(RequiredArgumentBuilder.<ServerCommandSource, EntitySelector>argument("player", EntityArgumentType.player())
-			.executes(context -> {
-				final var source = context.getSource();
-				final var tracked = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
-				assert tracked.getDisplayName() != null;
-				final var player = source.getPlayer();
-				if (player == null) return 2;
-				final var uuid = player.getUuid();
+				.executes(context -> {
+					final var source = context.getSource();
+					final var tracked = (ServerPlayerEntity) EntityArgumentType.getEntity(context, "player");
+					assert tracked.getDisplayName() != null;
+					final var player = source.getPlayer();
+					if (player == null) return 2;
+					final var uuid = player.getUuid();
 
-				if (!hunters.contains(uuid)) {
-					source.sendFeedback(() -> Text.literal("You aren't a hunter!"), false);
-					return Command.SINGLE_SUCCESS;
-				}
+					if (!hunters.contains(uuid)) {
+						source.sendFeedback(() -> Text.literal("You aren't a hunter!"), false);
+						return Command.SINGLE_SUCCESS;
+					}
 
-				if (trackedMap.get(uuid) != null && trackedMap.get(uuid) == tracked.getUuid()) {
-					source.sendFeedback(() -> Text.literal("Already tracking "+tracked.getDisplayName().getString()), false);
+					if (trackedMap.get(uuid) != null && trackedMap.get(uuid) == tracked.getUuid()) {
+						source.sendFeedback(() -> Text.literal("Already tracking "+tracked.getDisplayName().getString()), false);
+						return Command.SINGLE_SUCCESS;
+					}
+					trackedMap.put(player.getUuid(), tracked.getUuid());
+					updateCompass(player, tracked);
+					source.sendFeedback(() -> Text.literal("Tracking "+tracked.getDisplayName().getString()), false);
 					return Command.SINGLE_SUCCESS;
-				}
-				trackedMap.put(player.getUuid(), tracked.getUuid());
-				updateCompass(player, tracked);
-				source.sendFeedback(() -> Text.literal("Tracking "+tracked.getDisplayName().getString()), false);
-				return Command.SINGLE_SUCCESS;
-			})
+				})
 		);
 
 		final LiteralArgumentBuilder<ServerCommandSource> team = literal("team");
 		final RequiredArgumentBuilder<ServerCommandSource, EntitySelector> teamP = RequiredArgumentBuilder.argument("player", EntityArgumentType.player());
 		teamP.then(LiteralArgumentBuilder.<ServerCommandSource>literal("hunter").executes(addPlayerTeam(speedrunners, hunters, " added to hunter")))
-		.then(LiteralArgumentBuilder.<ServerCommandSource>literal("speedrunner").executes(addPlayerTeam(hunters, speedrunners, " added to speedrunner")));
+				.then(LiteralArgumentBuilder.<ServerCommandSource>literal("speedrunner").executes(addPlayerTeam(hunters, speedrunners, " added to speedrunner")));
 		team.then(teamP);
 		final LiteralArgumentBuilder<ServerCommandSource> start = literal("start");
 		start.requires(source -> source.hasPermissionLevel(2));
 
 		// "classic" mode
 		start.then(LiteralArgumentBuilder.<ServerCommandSource>literal("classic")
-			.executes((CommandContext<ServerCommandSource> context) ->
-				startGame(context, GameModeType.CLASSIC, 0)
-			)
+				.executes((CommandContext<ServerCommandSource> context) ->
+						startGame(context, GameModeType.CLASSIC, 0)
+				)
 		);
 
 		// impostor subcommand with optional count
 		start.then(CommandManager.literal("impostor")
-			// default count = 1
-			.executes(ctx -> startGame(ctx, GameModeType.IMPOSTOR, 1))
-			// optional integer argument
-			.then(CommandManager.argument("count", IntegerArgumentType.integer(1))
-				.executes(ctx -> {
-					int count = IntegerArgumentType.getInteger(ctx, "count");
+				// default count = 1
+				.executes(ctx -> startGame(ctx, GameModeType.IMPOSTOR, 1))
+				// optional integer argument
+				.then(CommandManager.argument("count", IntegerArgumentType.integer(1))
+						.executes(ctx -> {
+							int count = IntegerArgumentType.getInteger(ctx, "count");
 
-					return startGame(ctx, GameModeType.IMPOSTOR, count);
-				})
-			)
+							return startGame(ctx, GameModeType.IMPOSTOR, count);
+						})
+				)
 		);
 
 		// infection subcommand with optional count
@@ -350,53 +350,53 @@ public final class Manhunt implements ModInitializer {
 		resetTimer.executes(this::resetTimer);
 
 		final LiteralArgumentBuilder<ServerCommandSource> chat = literal("chat");
-		chat.then(CommandManager.argument("message", StringArgumentType.greedyString())
-			.executes(context -> {
-				ServerPlayerEntity player = context.getSource().getPlayer();
-                assert player != null;
+		chat.then(CommandManager.argument("message", StringArgumentType.string())
+				.executes(context -> {
+					ServerPlayerEntity player = context.getSource().getPlayer();
+					assert player != null;
 
-				String messageText = StringArgumentType.getString(context, "message");
-				PlayerManager pm = context.getSource().getServer().getPlayerManager();
-				boolean isHunter = hunters.contains(player.getUuid());
+					String messageText = StringArgumentType.getString(context, "message");
+					PlayerManager pm = context.getSource().getServer().getPlayerManager();
+					boolean isHunter = hunters.contains(player.getUuid());
 
-				// Build the team label
-				Text teamLabel = Text.literal("[")
-						.append(Text.literal(isHunter ? "Hunters" : "Speedrunners")
-								.styled(style -> style.withColor(isHunter ? Formatting.RED : Formatting.GREEN)))
-						.append(Text.literal("] "));
+					// Build the team label
+					Text teamLabel = Text.literal("[")
+							.append(Text.literal(isHunter ? "Hunters" : "Speedrunners")
+									.styled(style -> style.withColor(isHunter ? Formatting.RED : Formatting.GREEN)))
+							.append(Text.literal("] "));
 
-				// Username (white)
-				Text username = Text.literal(player.getName().getString())
-						.styled(style -> style.withColor(Formatting.WHITE));
+					// Username (white)
+					Text username = Text.literal(player.getName().getString())
+							.styled(style -> style.withColor(Formatting.WHITE));
 
-				// Message (also white, but separate for clarity)
-				Text content = Text.literal(": " + messageText)
-						.styled(style -> style.withColor(Formatting.WHITE));
+					// Message (also white, but separate for clarity)
+					Text content = Text.literal(": " + messageText)
+							.styled(style -> style.withColor(Formatting.WHITE));
 
-				// Final composed message
-				Text formatted = Text.empty().append(teamLabel).append(username).append(content);
+					// Final composed message
+					Text formatted = Text.empty().append(teamLabel).append(username).append(content);
 
-				if (isHunter && Config.hunterChat) {
-					for (UUID hunterUuid : hunters) {
-						ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
-						assert hunter != null;
+					if (isHunter && Config.hunterChat) {
+						for (UUID hunterUuid : hunters) {
+							ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
+							assert hunter != null;
 
-						hunter.sendMessage(formatted);
+							hunter.sendMessage(formatted);
+						}
+					} else if (Config.speedrunnerChat && !INSTANCE.isModeImpostor() && !INSTANCE.isModeInfection()) {
+						for (UUID hunterUuid : speedrunners) {
+							ServerPlayerEntity runner = pm.getPlayer(hunterUuid);
+							assert runner != null;
+
+							runner.sendMessage(formatted);
+						}
+					} else {
+						context.getSource().sendFeedback(() -> Text.literal("You cannot send manhunt chat messages!"), false);
+						return Command.SINGLE_SUCCESS;
 					}
-				} else if (Config.speedrunnerChat && !INSTANCE.isModeImpostor() && !INSTANCE.isModeInfection()) {
-					for (UUID hunterUuid : speedrunners) {
-						ServerPlayerEntity runner = pm.getPlayer(hunterUuid);
-						assert runner != null;
 
-						runner.sendMessage(formatted);
-					}
-				} else {
-					context.getSource().sendFeedback(() -> Text.literal("You cannot send manhunt chat messages!"), false);
 					return Command.SINGLE_SUCCESS;
-				}
-
-				return Command.SINGLE_SUCCESS;
-			})
+				})
 		);
 
 		command.then(track);
@@ -415,15 +415,15 @@ public final class Manhunt implements ModInitializer {
 		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
 			if (state == State.OFF) return;
 			final var uuid = oldPlayer.getUuid();
-			PlayerManager pm = newPlayer.server.getPlayerManager();
+			PlayerManager pm = Objects.requireNonNull(newPlayer.getEntityWorld().getServer()).getPlayerManager();
 
 			// Tell all hunters when someone dies
 			for (UUID hunterUuid : hunters) {
 				ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
-                assert hunter != null;
+				assert hunter != null;
 				String newPlayerName = newPlayer.getName().getString();
-                hunter.sendMessage(Text.literal(String.format("%s has died!" + ((manhuntMode == GameModeType.INFECTION && !hunters.contains(uuid)) ? " They are now a hunter." : ""), newPlayerName))
-					.formatted(Formatting.DARK_RED));
+				hunter.sendMessage(Text.literal(String.format("%s has died!" + ((manhuntMode == GameModeType.INFECTION && !hunters.contains(uuid)) ? " They are now a hunter." : ""), newPlayerName))
+						.formatted(Formatting.DARK_RED));
 			}
 
 			// Give deceased hunter a new compass
@@ -446,14 +446,14 @@ public final class Manhunt implements ModInitializer {
 
 				final var players = pm.getPlayerList();
 				List<ServerPlayerEntity> hunterPlayers = players.stream()
-					.filter(p -> hunters.contains(p.getUuid()))
-					.toList();
+						.filter(p -> hunters.contains(p.getUuid()))
+						.toList();
 
 				String teammateNames = hunterPlayers.stream()
-					.filter(other -> !other.getUuid().equals(newPlayer.getUuid()))
-					.map(ServerPlayerEntity::getName)
-					.map(Text::getString)
-					.collect(Collectors.joining(", "));
+						.filter(other -> !other.getUuid().equals(newPlayer.getUuid()))
+						.map(ServerPlayerEntity::getName)
+						.map(Text::getString)
+						.collect(Collectors.joining(", "));
 
 				newPlayer.sendMessage(Text.literal("Your fellow hunter" + (teammateNames.length() > 1 ? "s are: " : " is: ") + teammateNames).formatted(Formatting.RED), false);
 
@@ -469,13 +469,13 @@ public final class Manhunt implements ModInitializer {
 			if (!speedrunners.isEmpty()) return;
 
 			// No speedrunners left → hunters win!
-			MinecraftServer server = newPlayer.server;
+			MinecraftServer server = Objects.requireNonNull(newPlayer.getEntityWorld().getServer());
 			server.getPlayerManager().broadcast(
-				Text.literal("§cHunters win! All speedrunners have died!").formatted(Formatting.RED),
-				false
+					Text.literal("§cHunters win! All speedrunners have died!").formatted(Formatting.RED),
+					false
 			);
 
-			for (final ServerPlayerEntity player : newPlayer.server.getPlayerManager().getPlayerList()) {
+			for (final ServerPlayerEntity player : Objects.requireNonNull(newPlayer.getEntityWorld().getServer()).getPlayerManager().getPlayerList()) {
 				player.changeGameMode(GameMode.SPECTATOR);
 				hunters.remove(player.getUuid());
 				speedrunners.remove(player.getUuid());
@@ -530,7 +530,7 @@ public final class Manhunt implements ModInitializer {
 					if (hunter == null) continue;
 					final ServerPlayerEntity tracked = pm.getPlayer(trackedMap.get(uuid));
 					if (tracked == null) continue;
-					if (tracked.getWorld() != hunter.getWorld()) continue;
+					if (tracked.getEntityWorld() != hunter.getEntityWorld()) continue;
 					updateCompass(hunter, tracked);
 				}
 			}
@@ -539,8 +539,8 @@ public final class Manhunt implements ModInitializer {
 
 	private void updateCompass(ServerPlayerEntity player, ServerPlayerEntity tracked) {
 		// Get the world (dimension) keys of the tracked player and hunter player
-		RegistryKey<World> trackedDimensionKey = tracked.getWorld().getRegistryKey();
-		RegistryKey<World> hunterDimensionKey = player.getWorld().getRegistryKey();
+		RegistryKey<World> trackedDimensionKey = tracked.getEntityWorld().getRegistryKey();
+		RegistryKey<World> hunterDimensionKey = player.getEntityWorld().getRegistryKey();
 
 		// Get the tracked player's block position
 		BlockPos trackedBlockPos = tracked.getBlockPos();
@@ -556,8 +556,8 @@ public final class Manhunt implements ModInitializer {
 		ItemStack is = null;
 		int slot = PlayerInventory.NOT_FOUND;
 		final var inv = player.getInventory();
-		if (inv.getMainHandStack().isOf(Items.COMPASS)) {
-			is = inv.getMainHandStack();
+		if (player.getMainHandStack().isOf(Items.COMPASS)) {
+			is = player.getMainHandStack();
 			slot = inv.getSlotWithStack(is);
 		} else if (inv.getStack(PlayerInventory.OFF_HAND_SLOT).isOf(Items.COMPASS)) {
 			is = inv.getStack(PlayerInventory.OFF_HAND_SLOT);
@@ -581,13 +581,13 @@ public final class Manhunt implements ModInitializer {
 
 		// Set the custom name for tracking
 		is.set(
-			DataComponentTypes.CUSTOM_NAME,
-			Text.literal("Tracking Player: ").append(tracked.getDisplayName())
+				DataComponentTypes.CUSTOM_NAME,
+				Text.literal("Tracking Player: ").append(tracked.getDisplayName())
 		);
 
 		// Apply Curse of Vanishing to the compass
 		// These 4 lines took way too long to figure out
-		Registry<Enchantment> enchantmentRegistry = Objects.requireNonNull(player.getServer()).getRegistryManager().getOrThrow(RegistryKeys.ENCHANTMENT);
+		Registry<Enchantment> enchantmentRegistry = Objects.requireNonNull(Objects.requireNonNull(player.getEntityWorld().getServer())).getRegistryManager().getOrThrow(RegistryKeys.ENCHANTMENT);
 		RegistryKey<Enchantment> vanishingCurseKey = Enchantments.VANISHING_CURSE;
 		RegistryEntry<Enchantment> vanishingCurseEntry = enchantmentRegistry.getOrThrow(vanishingCurseKey);
 		is.addEnchantment(vanishingCurseEntry, 1);
@@ -624,7 +624,7 @@ public final class Manhunt implements ModInitializer {
 			player.getHungerManager().eat(
 					new FoodComponent(20, 20.0f, true)
 			);
-			final var spawn = player.getServerWorld().getSpawnPos();
+			final BlockPos spawn = player.getEntityWorld().getSpawnPoint().getPos();
 			player.teleport(spawn.getX(), spawn.getY(), spawn.getZ(), false);
 		}
 
@@ -671,12 +671,12 @@ public final class Manhunt implements ModInitializer {
 				chosenHunter.sendMessage(Text.literal("You are " + (impostors > 1 ? "a" : "the") + " hunter! Act like a speedrunner, but try to stop the others!").formatted(Formatting.DARK_RED), false);
 			}
 
-            for (ServerPlayerEntity player : players) {
-                if (!hunters.contains(player.getUuid())) {
-                    speedrunners.add(player.getUuid());
+			for (ServerPlayerEntity player : players) {
+				if (!hunters.contains(player.getUuid())) {
+					speedrunners.add(player.getUuid());
 					player.sendMessage(Text.literal("You are a speedrunner! Try to beat the game without being stopped by the hunter(s)!").formatted(Formatting.GREEN));
-                }
-            }
+				}
+			}
 
 			// Notify hunters of their teammates if more than one
 			if (impostors > 1) {
@@ -714,9 +714,9 @@ public final class Manhunt implements ModInitializer {
 					ServerPlayerEntity hunter = pm.getPlayer(hunterUuid);
 					if (hunter != null) {
 						hunter.sendMessage(
-							Text.literal("Tip: Use /manhunt track <player> to track a specific player!")
-									.formatted(Formatting.GRAY),
-							false
+								Text.literal("Tip: Use /manhunt track <player> to track a specific player!")
+										.formatted(Formatting.GRAY),
+								false
 						);
 					}
 				}

@@ -1,5 +1,5 @@
 plugins {
-	id 'fabric-loom' version '1.8-SNAPSHOT'
+	id 'fabric-loom' version '1.12.0-alpha.42'
 	id 'maven-publish'
 }
 
@@ -68,11 +68,17 @@ java {
 	targetCompatibility = JavaVersion.VERSION_21
 }
 
+// Configure the normal jar (optional, mainly affects the plain JAR)
 jar {
+	archiveBaseName.set("${project.archives_base_name}-${project.minecraft_version}")
+	archiveVersion.set(project.mod_version)
+	archiveClassifier.set("")  // optional, removes extra "dev" suffix
+
 	from("LICENSE") {
-		rename { "${it}_${project.base.archivesName.get()}"}
+		rename { "${it}_${archiveBaseName.get()}" }
 	}
 }
+
 
 // configure the maven publication
 publishing {
@@ -90,4 +96,10 @@ publishing {
 		// The repositories here will be used for publishing your artifact, not for
 		// retrieving dependencies.
 	}
+}
+
+tasks.named("remapJar") {
+	archiveBaseName.set("${project.archives_base_name}-${project.minecraft_version}")
+	archiveVersion.set(project.mod_version)
+	archiveClassifier.set("") // optional, remove extra "dev" suffix if any
 }
