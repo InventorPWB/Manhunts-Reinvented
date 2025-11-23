@@ -70,8 +70,8 @@ java {
 
 // Configure the normal jar (optional, mainly affects the plain JAR)
 jar {
-	archiveBaseName.set("${project.archives_base_name}-${project.minecraft_version}")
-	archiveVersion.set(project.mod_version)
+	archiveBaseName.set("${project.archives_base_name}")
+	archiveVersion.set("${project.mod_version}+${project.minecraft_version}")
 	archiveClassifier.set("")  // optional, removes extra "dev" suffix
 
 	from("LICENSE") {
@@ -99,7 +99,7 @@ publishing {
 }
 
 tasks.named("remapJar") {
-	archiveBaseName.set("${project.archives_base_name}-${project.minecraft_version}")
-	archiveVersion.set(project.mod_version)
+	archiveBaseName.set("${project.archives_base_name}")
+	archiveVersion.set("${project.mod_version}+${project.minecraft_version}")
 	archiveClassifier.set("") // optional, remove extra "dev" suffix if any
 }
