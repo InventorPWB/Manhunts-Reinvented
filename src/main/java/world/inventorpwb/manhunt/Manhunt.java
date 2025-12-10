@@ -84,7 +84,7 @@ public final class Manhunt implements ModInitializer {
 		int z = (int) Math.round(posVec.z);
 
 		String playerName = player.getName().getString();
-		String dimension = player.getEntityWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
+		String dimension = player.getWorld().getRegistryKey().getValue().toString(); // e.g., "minecraft:overworld"
 		String formatted = formatDimension(dimension);
 
 		String pos = String.format("(%d, %d, %d)", x, y, z);
@@ -256,7 +256,7 @@ public final class Manhunt implements ModInitializer {
 							"%s is at (%d, %d, %d) in the %s! You have %d reveals left.",
 							target.getName().getString(),
 							x, y, z,
-							formatDimension(target.getEntityWorld()
+							formatDimension(target.getWorld()
 									.getRegistryKey()
 									.getValue()
 									.toString()),
@@ -415,7 +415,7 @@ public final class Manhunt implements ModInitializer {
 		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
 			if (state == State.OFF) return;
 			final var uuid = oldPlayer.getUuid();
-			PlayerManager pm = Objects.requireNonNull(newPlayer.getEntityWorld().getServer()).getPlayerManager();
+			PlayerManager pm = Objects.requireNonNull(newPlayer.getWorld().getServer()).getPlayerManager();
 
 			// Tell all hunters when someone dies
 			for (UUID hunterUuid : hunters) {
@@ -469,13 +469,13 @@ public final class Manhunt implements ModInitializer {
 			if (!speedrunners.isEmpty()) return;
 
 			// No speedrunners left → hunters win!
-			MinecraftServer server = Objects.requireNonNull(newPlayer.getEntityWorld().getServer());
+			MinecraftServer server = Objects.requireNonNull(newPlayer.getWorld().getServer());
 			server.getPlayerManager().broadcast(
 					Text.literal("§cHunters win! All speedrunners have died!").formatted(Formatting.RED),
 					false
 			);
 
-			for (final ServerPlayerEntity player : Objects.requireNonNull(newPlayer.getEntityWorld().getServer()).getPlayerManager().getPlayerList()) {
+			for (final ServerPlayerEntity player : Objects.requireNonNull(newPlayer.getWorld().getServer()).getPlayerManager().getPlayerList()) {
 				player.changeGameMode(GameMode.SPECTATOR);
 				hunters.remove(player.getUuid());
 				speedrunners.remove(player.getUuid());
@@ -530,7 +530,7 @@ public final class Manhunt implements ModInitializer {
 					if (hunter == null) continue;
 					final ServerPlayerEntity tracked = pm.getPlayer(trackedMap.get(uuid));
 					if (tracked == null) continue;
-					if (tracked.getEntityWorld() != hunter.getEntityWorld()) continue;
+					if (tracked.getWorld() != hunter.getWorld()) continue;
 					updateCompass(hunter, tracked);
 				}
 			}
@@ -539,8 +539,8 @@ public final class Manhunt implements ModInitializer {
 
 	private void updateCompass(ServerPlayerEntity player, ServerPlayerEntity tracked) {
 		// Get the world (dimension) keys of the tracked player and hunter player
-		RegistryKey<World> trackedDimensionKey = tracked.getEntityWorld().getRegistryKey();
-		RegistryKey<World> hunterDimensionKey = player.getEntityWorld().getRegistryKey();
+		RegistryKey<World> trackedDimensionKey = tracked.getWorld().getRegistryKey();
+		RegistryKey<World> hunterDimensionKey = player.getWorld().getRegistryKey();
 
 		// Get the tracked player's block position
 		BlockPos trackedBlockPos = tracked.getBlockPos();
@@ -587,7 +587,7 @@ public final class Manhunt implements ModInitializer {
 
 		// Apply Curse of Vanishing to the compass
 		// These 4 lines took way too long to figure out
-		Registry<Enchantment> enchantmentRegistry = Objects.requireNonNull(Objects.requireNonNull(player.getEntityWorld().getServer())).getRegistryManager().getOrThrow(RegistryKeys.ENCHANTMENT);
+		Registry<Enchantment> enchantmentRegistry = Objects.requireNonNull(Objects.requireNonNull(player.getWorld().getServer())).getRegistryManager().getOrThrow(RegistryKeys.ENCHANTMENT);
 		RegistryKey<Enchantment> vanishingCurseKey = Enchantments.VANISHING_CURSE;
 		RegistryEntry<Enchantment> vanishingCurseEntry = enchantmentRegistry.getOrThrow(vanishingCurseKey);
 		is.addEnchantment(vanishingCurseEntry, 1);
@@ -624,7 +624,7 @@ public final class Manhunt implements ModInitializer {
 			player.getHungerManager().eat(
 					new FoodComponent(20, 20.0f, true)
 			);
-			final BlockPos spawn = player.getEntityWorld().getSpawnPoint().getPos();
+			final var spawn = player.getWorld().getSpawnPos();
 			player.teleport(spawn.getX(), spawn.getY(), spawn.getZ(), false);
 		}
 
